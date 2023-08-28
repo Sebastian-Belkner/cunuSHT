@@ -1,0 +1,3 @@
+pyCUDA
+SHTns
+DUCC

@@ -1,0 +1,9 @@
+README.md
+setup.py
+pySHT/__init__.py
+pySHT/pysht.py
+pySHT.egg-info/PKG-INFO
+pySHT.egg-info/SOURCES.txt
+pySHT.egg-info/dependency_links.txt
+pySHT.egg-info/requires.txt
+pySHT.egg-info/top_level.txt
