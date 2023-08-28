@@ -1,9 +1,0 @@
-README.md
-setup.py
-pysht/__init__.py
-pysht/pysht.py
-pysht.egg-info/PKG-INFO
-pysht.egg-info/SOURCES.txt
-pysht.egg-info/dependency_links.txt
-pysht.egg-info/requires.txt
-pysht.egg-info/top_level.txt
