@@ -4,4 +4,7 @@ from pysht.pysht import (
     adjoint_synthesis,
     adjoint_synthesis_general,
     set_backend,
-    get_transformer)
+    get_backend,
+    get_transformer,
+    set_geom,
+    get_geom)
