@@ -6,6 +6,8 @@ from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.utils import timer, blm_gauss
 from lenspyx.remapping.utils_angles import d2ang
 
+from pysht.visitor import transform
+
 import ducc0
 from ducc0.misc import GL_thetas, GL_weights
 from ducc0.fft import good_size
@@ -54,6 +56,13 @@ if HAS_DUCCPOINTING:
 
 import shtns
 
+class Geom_CPU:
+    def __init__(self, *args):
+        pass
+
+class Geom_GPU:
+    def __init__(self, *args):
+        pass
 
 
 def st2mmax(spin, tht, lmax):
@@ -68,7 +77,7 @@ def st2mmax(spin, tht, lmax):
     return mmax
 
 
-class Geom:
+class Geometry:
     def __init__(self,
                  theta:np.ndarray[float],
                  phi0:np.ndarray[float],
@@ -150,7 +159,7 @@ class Geom:
                 print('** gclm2lenmap: inconsistent input dtype !')
                 gclm = gclm.astype(np.complex64)
             gclm = np.atleast_2d(gclm)
-            sht_mode = self.ducc_sht_mode(gclm, spin)
+            sht_mode = ducc_sht_mode(gclm, spin)
             lmax_unl = Alm.getlmax(gclm[0].size, mmax)
             if mmax is None:
                 mmax = lmax_unl
@@ -159,8 +168,7 @@ class Geom:
             assert ptg.shape[-1] == 2, ptg.shape
             assert ptg.dtype == np.float64, 'synthesis_general only accepts float here'
             if spin == 0:
-                print('pysht ', lmax_unl, mmax, gclm.shape, ptg.shape, spin, epsilon, self.sht_tr, sht_mode, self.verbosity)
-                print('pysht ', gclm, ptg)
+                print(lmax_unl, mmax, gclm.shape, ptg.shape, spin, self.epsilon, self.sht_tr, sht_mode, self.verbosity)
                 values = ducc_synthesis_general(lmax=lmax_unl, mmax=mmax, alm=gclm, loc=ptg, spin=spin, epsilon=epsilon,
                                         nthreads=self.sht_tr, mode=sht_mode, verbose=self.verbosity)
                 return values
@@ -675,10 +683,19 @@ class pbounds:
         return (dph <= self.hext) |((2 * np.pi - dph) <= self.hext)
 
 class pbdGeometry:
-    def __init__(self, geom: Geom, pbound: pbounds):
+    def __init__(self, geom: Geometry, pbound: pbounds):
         """Gometry with additional info on longitudinal cuts
 
 
         """
         self = geom
         self.pbound = pbound
+
+
+@transform.case(Geometry, Geom_CPU)
+def _(expr, transformer): # pylint: disable=missing-function-docstring
+    return transformer.build(expr)
+
+@transform.case(Geometry, Geom_GPU)
+def _(expr, transformer): # pylint: disable=missing-function-docstring
+    return transformer.build(expr)

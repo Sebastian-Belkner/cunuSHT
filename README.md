@@ -27,3 +27,8 @@ Run script for starting server,
 
 In VS Code, choose exsiting server with URL.
 Finally, in notebook, choose shtgpu kernel.
+
+
+To install shtns, activate gpu node, load compatible modules (CUDAcore needs gcc <=10, i.e: module load GCC/9.3.0)
+
+There appears to be two shtgpu conda environs. One is on login node, the other is on gpu node. Install stuff into the gpu node version, as only there shtns and cufinufft installations succeed.
