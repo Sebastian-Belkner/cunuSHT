@@ -24,7 +24,7 @@ class _Visitor:
     def __call__(self, arg1, arg2):
         fun = self.cases[type(arg1), type(arg2)]
         return fun(arg1, arg2)
-    
+
 class _Visitor3d:
     def __init__(self, t_fct):
         """"Initialise with a transformation function object."""
