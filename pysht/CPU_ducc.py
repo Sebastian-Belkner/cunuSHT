@@ -173,8 +173,6 @@ class base:
         def _get_ptg():
             # TODO improve this and fwd angles, e.g. this is computed twice for gamma if no cacher
             self._build_angles(dlm, mmax, mmax) if not self._cis else self._build_angleseig()
-            ptg = self.cacher.load('ptg')
-            print(ptg)
             return self.cacher.load('ptg')
 
         self.single_prec = single_prec * (epsilon > 1e-6)

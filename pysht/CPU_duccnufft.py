@@ -82,9 +82,7 @@ class base:
 
     def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
-
             Returns (npix, 3) array with new tht, phi and -gamma
-
         """
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
@@ -103,21 +101,7 @@ class base:
                 print('build_angles')
                 return
             npix = self.npix
-            if fortran and HAS_FORTRAN:
-                red, imd = d1
-                tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
-                if self.single_prec_ptg:
-                    thp_phip_gamma = fremap.fpointing(red, imd, tht, phi0, nph, ofs, self.sht_tr)
-                else:
-                    thp_phip_gamma = fremap.pointing(red, imd, tht, phi0, nph, ofs, self.sht_tr)
-                print('build angles <- th-phi-gm (ftn)')
-                # I think this just trivially turns the F-array into a C-contiguous array:
-                self.cacher.cache(fns[0], thp_phip_gamma.transpose()[:, 0:2])
-                if calc_rotation:
-                    self.cacher.cache(fns[1], thp_phip_gamma.transpose()[:, 2] if not self.single_prec else thp_phip_gamma.transpose()[:, 2].astype(np.float32))
-                return
-            elif fortran and not HAS_FORTRAN:
-                print('Cant use fortran pointing building since import failed. Falling back on python impl.')
+
             thp_phip_gamma = np.empty((3, npix), dtype=float)  # (-1) gamma in last arguement
             startpix = 0
             assert np.all(self.geom.theta > 0.) and np.all(self.geom.theta < np.pi), 'fix this (cotangent below)'
@@ -153,7 +137,7 @@ class base:
 
 
     def synthesis_general(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
-        """CPU algorithm for spin-n remapping using finufft
+        """CPU algorithm for spin-n remapping using duccnufft
 
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -176,22 +160,7 @@ class base:
         if self.single_prec and gclm.dtype != np.complex64:
             gclm = gclm.astype(np.complex64)
             self.tim.add('type conversion')
-        if spin == 0 and self._totalconvolves0: # this will probably just disappear
-            # The code below would work just as well for spin-0 but seems slightly slower
-            # For the moment this seems faster
-            blm_T = blm_gauss(0, lmax_unl, 0)
-            self.tim.add('blm_gauss')
-            if ptg is None:
-                ptg = self._build_angles()
-            self.tim.add('ptg')
-            assert mmax == lmax_unl
-            # FIXME: this might only accept doubple prec input
-            inter_I = ducc0.totalconvolve.Interpolator(gclm, blm_T, separate=False, lmax=lmax_unl,
-                                                        kmax=0,
-                                                        epsilon=self.epsilon, ofactor=self.ofactor,
-                                                        nthreads=self.sht_tr)
-            ret = inter_I.interpol(ptg).squeeze()
-            return ret
+
         # transform slm to Clenshaw-Curtis map
         ntheta = ducc0.fft.good_size(lmax_unl + 2)
         nphihalf = ducc0.fft.good_size(lmax_unl + 1)
@@ -216,8 +185,11 @@ class base:
 
         # go to Fourier space
         if spin == 0:
+            _ = map_dfs.copy()
             tmp = np.empty(map_dfs.shape, dtype=ctype[map_dfs.dtype])
-            map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=tmp)
+            map_dfs = ducc0.fft.c2c(map_dfs.copy(), axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=tmp)
+            tmp_ = np.empty(map_dfs.T.shape, dtype=np.complex128)
+            map_dfs_return = ducc0.fft.c2c(_.T, axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=tmp_)
             del tmp
         else:
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=map_dfs)
@@ -232,10 +204,12 @@ class base:
             if ptg is None:
                 ptg = self._get_ptg(dlm, mmax)
             self.tim.add('get ptg')
-            values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=False,
+            
+            values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=True,
                                         epsilon=self.epsilon, nthreads=self.sht_tr,
                                         verbosity=self.verbosity, periodicity=2 * np.pi, fft_order=True)
             self.tim.add('u2nu')
+            # return(map_dfs)
 
         if polrot * spin:
             if self._cis:
@@ -252,10 +226,10 @@ class base:
                     func(values, self._get_gamma(), spin, self.sht_tr)
                     self.tim.add('polrot (fortran)')
         # Return real array of shape (2, npix) for spin > 0
-        return values.real if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
+        return (values.real, ptg, map_dfs) if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
-    def adjoint_synthesis_general(*args, **kwargs):
+    def adjoint_synthesis_general(gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
 
         """
             Note:
