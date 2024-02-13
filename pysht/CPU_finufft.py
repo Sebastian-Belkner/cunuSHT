@@ -253,6 +253,7 @@ class base:
         """
         self.tim.start('lenmap2gclm')
         self.tim.reset()
+        mode = ducc_sht_mode(gclm, spin)
         if spin == 0 and not np.iscomplexobj(points):
             points = points.astype(ctype[points.dtype]).squeeze()
         if spin > 0 and not np.iscomplexobj(points):
@@ -271,9 +272,7 @@ class base:
 
         else:
             # perform NUFFT
-            map_dfs = ducc0.nufft.nu2u(points=points, coord=ptg, out=map_dfs, forward=True,
-                                        epsilon=self.epsilon, nthreads=self.sht_tr, verbosity=self.verbosity,
-                                        periodicity=2 * np.pi, fft_order=True)
+            map_dfs = finufft.nufft2d1(x=ptg[:,0], y=ptg[:,1], c=map_dfs, n_modes=(lmax,lmax))
             self.tim.add('nu2u')
         # go to position space
         map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), forward=False, inorm=2, nthreads=self.sht_tr, out=map_dfs)
@@ -296,8 +295,8 @@ class base:
 
         # adjoint SHT synthesis
         slm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin,
-                            lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.sht_tr, mode=sht_mode, alm=gclm_out)
-        self.tim.add('adjoint_synthesis_2d (%s)'%sht_mode)
+                            lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.sht_tr, mode=mode, alm=gclm_out)
+        self.tim.add('adjoint_synthesis_2d (%s)'%mode)
         self.tim.close('lenmap2gclm')
         return slm.squeeze()
 
