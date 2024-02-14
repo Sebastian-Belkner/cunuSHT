@@ -10,7 +10,7 @@ import ducc0
 
 import pysht.geometry as geometry
 from pysht.geometry import Geom
-from pysht.sht_transformer import CPU_DUCC_transformer
+from pysht.sht.sht_transformer import CPU_DUCC_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
          np.dtype(np.float64): np.complex128,
