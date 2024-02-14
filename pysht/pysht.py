@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from pysht import CPU_finufft, CPU_ducc, GPU_cufinufft, CPU_duccnufft
+from pysht.deflection import CPU_finufft, GPU_cufinufft, CPU_duccnufft, CPU_ducc
 from pysht.visitor import transform, transform3d
 from pysht.geometry import Geom
 
@@ -14,10 +14,15 @@ class CPU_Transformer:
         elif solver in ['finufft']:
             return CPU_finufft.base()
 
+
 class GPU_Transformer:
     def build(self, solver):
-        return GPU_cufinufft()
-    
+        if solver in ['cufinufft']:
+            return GPU_cufinufft.base()
+        elif solver in ['shtns']:
+            assert 0, "not implemented"
+
+
 def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CPU'):
     r"""Returns sphere pixelization geometry instance from name and arguments
 
@@ -30,14 +35,18 @@ def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CP
         assert 0, 'Geometry %s not found, available geometries: '%geometry[0] + Geom.get_supported_geometries()
     return geo(**geometry[1], backend=backend)
 
+
 def set_transformer(transf):
     assert 0, "implement if needed"
+
 
 def get_transformer(solver, backend):
     if backend in ['CPU']:
         return transform(solver, CPU_Transformer())
     elif backend in ['GPU']:
         return transform(solver, GPU_Transformer())
+
+
 
 @transform.case(str, CPU_Transformer)
 def _(solver, transformer): # pylint: disable=missing-function-docstring

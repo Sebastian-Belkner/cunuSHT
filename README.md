@@ -2,6 +2,16 @@
 general spin-n SHTs on CPU and GPU backend
 
 
+## rust @ Simons
+
+```
+salloc -p gpu --gpus=1 -C v100 -c 1
+ssh sbelkner@<workergpuX>
+remember workerid!
+module load python gcc cuda
+./start_jupyter (don't miss half the token..)
+connect via VS Code kernel
+```
 
 ## Ygdrassil
 Quickhelp to activate GPU on jupyter notebook in VS code
