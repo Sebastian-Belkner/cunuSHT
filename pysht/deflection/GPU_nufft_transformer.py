@@ -7,11 +7,12 @@ from lenspyx.remapping.utils_angles import d2ang
 from lenspyx import cachers
 
 import ducc0
-import finufft
+import cufinufft
+import cupy as cp
 
 import pysht.geometry as geometry
 from pysht.geometry import Geom
-from pysht.sht.sht_transformer import CPU_DUCC_transformer
+from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
          np.dtype(np.float64): np.complex128,
@@ -46,7 +47,7 @@ def ducc_sht_mode(gclm, spin):
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
 
 
-class base:
+class GPU_cufinufft_transformer:
     def __init__(self):
         self.backend = 'CPU'
         self.single_prec = True
@@ -57,7 +58,7 @@ class base:
         self.planned = False
         self._cis = False
         self.cacher = cachers.cacher_mem()
-        self.sht_transformer = CPU_DUCC_transformer()
+        self.sht_transformer = CPU_SHT_DUCC_transformer()
         self.epsilon = 1e-7
 
 
@@ -219,8 +220,8 @@ class base:
             self.tim.add('get ptg')
 
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
-            v_ = finufft.nufft2d2(x=ptg[:,0], y=ptg[:,1], f=map_shifted.astype(np.complex128))
-            values = np.roll(np.real(v_).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
+            v_ = cufinufft.nufft2d2(x=cp.array(ptg[:,1]), y=cp.array(ptg[:,0]), data=cp.array(map_shifted.astype(np.complex128)))
+            values = np.roll(np.real(v_.get()).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
             self.tim.add('u2nu')
 
         if polrot * spin:
@@ -242,7 +243,6 @@ class base:
 
 
     def adjoint_synthesis_general(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
-
         """
             Note:
                 points mst be already quadrature-weigthed
@@ -272,7 +272,7 @@ class base:
 
         else:
             # perform NUFFT
-            map_dfs = finufft.nufft2d1(x=ptg[:,0], y=ptg[:,1], c=map_dfs, n_modes=(lmax,lmax))
+            map_dfs = cufinufft.nufft2d1(x=ptg[:,0], y=ptg[:,1], c=map_dfs, n_modes=(lmax,lmax)).get()
             self.tim.add('nu2u')
         # go to position space
         map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), forward=False, inorm=2, nthreads=self.sht_tr, out=map_dfs)

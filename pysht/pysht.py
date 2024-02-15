@@ -1,26 +1,45 @@
 from __future__ import annotations
 
 
-from pysht.deflection import CPU_finufft, GPU_cufinufft, CPU_duccnufft, CPU_ducc
+from pysht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
+from pysht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_DUCC_transformer
+
+from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
+from pysht.sht.GPU_sht_transformer import GPU_SHTns_transformer
 from pysht.visitor import transform, transform3d
 from pysht.geometry import Geom
 
-class CPU_Transformer:
+class CPU_SHT_Transformer:
+    def build(self, solver):
+        if solver in ['shtns']:
+            return CPU_SHT_SHTns_transformer()
+        elif solver in ['ducc']:
+            return CPU_SHT_DUCC_transformer()
+        else:
+            assert 0, "Solver not found"
+        
+class CPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['duccnufft']:
-            return CPU_duccnufft.base()
+            return CPU_DUCCnufft_transformer()
         elif solver in ['ducc']:
-            return CPU_ducc.base()
+            return CPU_DUCC_transformer()
         elif solver in ['finufft']:
-            return CPU_finufft.base()
+            return CPU_finufft_transformer()
 
-
-class GPU_Transformer:
+class GPU_SHT_Transformer:
+    def build(self, solver):
+        if solver in ['shtns']:
+            return GPU_SHTns_transformer()
+        else:
+            assert 0, "Solver not found"
+        
+class GPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['cufinufft']:
-            return GPU_cufinufft.base()
-        elif solver in ['shtns']:
-            assert 0, "not implemented"
+            return GPU_cufinufft_transformer()
+        else:
+            assert 0, "Solver not found"
 
 
 def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CPU'):
@@ -40,18 +59,46 @@ def set_transformer(transf):
     assert 0, "implement if needed"
 
 
-def get_transformer(solver, backend):
+def get_transformer(solver, mode, backend):
     if backend in ['CPU']:
-        return transform(solver, CPU_Transformer())
+        if mode in ['SHT']:
+            return transform(solver, CPU_SHT_Transformer())
+        elif mode in ['nuFFT']:
+            return transform(solver, CPU_nuFFT_Transformer())
+        else:
+            assert 0, "Mode not found"
     elif backend in ['GPU']:
-        return transform(solver, GPU_Transformer())
+        if mode in ['SHT']:
+            return transform(solver, GPU_SHT_Transformer())
+        elif mode in ['nuFFT']:
+            return transform(solver, GPU_nuFFT_Transformer())
+        else:
+            assert 0, "Mode not found"
+    else:
+        assert 0, "Backend not found"
 
 
-
-@transform.case(str, CPU_Transformer)
+@transform.case(str, CPU_SHT_Transformer)
 def _(solver, transformer): # pylint: disable=missing-function-docstring
     return transformer.build(solver)
 
-@transform.case(str, GPU_Transformer)
+@transform.case(str, CPU_nuFFT_Transformer)
 def _(solver, transformer): # pylint: disable=missing-function-docstring
     return transformer.build(solver)
+
+@transform.case(str, GPU_SHT_Transformer)
+def _(solver, transformer): # pylint: disable=missing-function-docstring
+    return transformer.build(solver)
+
+@transform.case(str, GPU_nuFFT_Transformer)
+def _(solver, transformer): # pylint: disable=missing-function-docstring
+    return transformer.build(solver)
+
+
+# @transform3d.case(str, str, CPU_Transformer)
+# def _(solver, transformer): # pylint: disable=missing-function-docstring
+#     return transformer.build(solver)
+
+# @transform3d.case(str, str, GPU_Transformer)
+# def _(solver, transformer): # pylint: disable=missing-function-docstring
+#     return transformer.build(solver)
