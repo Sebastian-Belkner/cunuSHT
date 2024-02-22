@@ -64,7 +64,7 @@ class GPU_cufinufft_transformer:
 
     def set_geometry(self, geom_desc):
         self.geom = geometry.get_geom(geom_desc)
-        self.sht_transformer.set_geometry(self.geom)
+        self.sht_transformer.set_geometry(geom_desc)
 
 
     def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
