@@ -98,6 +98,9 @@ std::pair<std::vector<double>, std::vector<double>> meshgrid_1d(const std::vecto
 __device__ double dsqrt(double n) {
     return sqrt(n);
 }
+__device__ int dabs(double n) {
+    return abs(n);
+}
 __device__ double factorial(int n) {
     double result = 1.0;
     for (int i = 2; i <= n; ++i) {
@@ -141,13 +144,13 @@ __device__ double legendreuploop(int l, int m, double x, int cl, double Plm, dou
     if (cl == abs(m)){
         double Pmm;
         double amm = 1.0;
-        for (int k = 1; k<=abs(m); ++k) {
+        for (int k = 1; k<=dabs(m); ++k) {
             amm *= (2*k+1)/(2*k);
         }
-        amm = power(-1,abs(m))*dsqrt(amm);
+        amm = power(-1,dabs(m))*dsqrt(amm);
         Pmm = amm * sqrt(power(1 - x * x, abs(m)));
         if (m<0) {
-            Pmm = power(-1, abs(m)) * factorial(0) / factorial(2*abs(m)) * Pmm;
+            Pmm = power(-1, dabs(m)) * factorial(0) / factorial(2*dabs(m)) * Pmm;
         }
         if (cl==l) {
             // we are done
@@ -155,7 +158,7 @@ __device__ double legendreuploop(int l, int m, double x, int cl, double Plm, dou
         }
         
         double amp1m = 1.0;
-        for (int k = 1; k<=abs(m)+1; ++k) {
+        for (int k = 1; k<=dabs(m)+1; ++k) {
             amp1m *= (2*k+1)/(2*k);
         }
         amp1m = power(-1,abs(m)) * sqrtf(amp1m);
@@ -167,7 +170,7 @@ __device__ double legendreuploop(int l, int m, double x, int cl, double Plm, dou
         if (cl == l-1) {
             return Pmp1m;
         } else {
-            return legendreuploop(l, abs(m), x, cl+1, Pmp1m, Pmm);
+            return legendreuploop(l, dabs(m), x, cl+1, Pmp1m, Pmm);
         }
     }
     // cl starts with m, and goes up to l
@@ -205,78 +208,64 @@ __global__ void compute_ALPs(int lmax, int mmax, int size_x, double *x, double *
     }
 }
 
-__device__ double* legendreuplooptrace(int l, int m, double x, int cl, double Plm, double Plm1m, double *result) {
+__device__ double* legendreuplooptrace(int l, int m, double x, double *result) {
     // initialize with Pmm and Pmp1m, then walk upways and pass previous values, store result 
-    if (cl == abs(m)){
-        double Pmm;
-        double amm = 1.0;
-        for (int k = 1; k<=abs(m); ++k) {
-            amm *= (2*k+1)/(2*k);
-        }
-        amm = power(-1,abs(m))*dsqrt(amm);
-        Pmm = amm * sqrt(power(1 - x * x, abs(m)));
-        if (m<0) {
-            Pmm = power(-1, abs(m)) * factorial(0) / factorial(2*abs(m)) * Pmm;
-        }
-        result[l-cl] = Pmm;
-        if (cl==l) {
-            // we are done
-            return result;
-        }
-        
-        double amp1m = 1.0;
-        for (int k = 1; k<=abs(m)+1; ++k) {
-            amp1m *= (2*k+1)/(2*k);
-        }
-        amp1m = power(-1,abs(m)) * sqrtf(amp1m);
-        double Pmp1m = amp1m * x * sqrtf(power(1 - x * x, abs(m)));
-        if (m<0) {
-            Pmp1m = power(-1, abs(m)) * factorial(0) / factorial(2*abs(m)) * Pmp1m;
-        }
-        result[l-cl+1] = Pmp1m;
-        if (cl == l-1) {
-            return result;
-        } else {
-            return legendreuplooptrace(l, abs(m), x, cl+1, Pmp1m, Pmm, result);
-        }
-    }
+    // double Plm, Plm1m;
+    int cl = dabs(m)+1;
+
     // cl starts with m, and goes up to l
-    for (cl; cl<=l; ++cl) {
-        if (cl==l) {
-            // we are done
-            return result;
-        } else if (cl == l-1) {
-            // we are almost done
-            double l_ = l;
-            double blm = - dsqrt((2.*l_+1.)/(2.*l_-3)*((l_-1.)*(l_-1.)-m*m)/(l_*l_-m*m));
-            double alm = dsqrt((4.*l_*l_-1.)/(l_*l_-m*m));
-            double Plp1m = alm * x * Plm + blm * Plm1m;
-            result[cl-l+1] = Plp1m;
-            return result;
-        } else {
-            double l_ = l+1;
-            double blm = - dsqrt((2.*l_+1.)/(2.*l_-3)*((l_-1.)*(l_-1.)-m*m)/(l_*l_-m*m));
-            double alm = dsqrt((4.*l_*l_-1.)/(l_*l_-m*m));
-            double Plp1m = alm * x * Plm + blm * Plm1m;
-            double buff = Plm;
-            Plm = Plp1m;
-            Plm1m = buff;
-            result[cl-l+1] = Plp1m;
-        }
+    for (; cl<=l; cl++) {
+        double l_ = l;
+        double blm = - dsqrt((2.*l_+1.)/(2.*l_-3)*((l_-1.)*(l_-1.)-m*m)/(l_*l_-m*m));
+        double alm = dsqrt((4.*l_*l_-1.)/(l_*l_-m*m));
+        double Plp1m = alm * x * result[cl-m+1-1] + blm * result[cl-m+1-2];
+        result[cl-m+1] = Plp1m;
+    }
+    return result;
+}
+__device__ double* alegtrace(const int l, const int m, double x) {
+    // return legendredown_Nath(l, m, x);
+    double *result = new double[l-dabs(m)+1];
+    double Pmm;
+
+    double amm = 1.0;
+    for (int k = 1; k<=dabs(m); ++k) {
+        amm *= (2*k+1)/(2*k);
+    }
+    amm = power(-1,dabs(m))*dsqrt(amm);
+    Pmm = amm * sqrt(power(1 - x * x, dabs(m)));
+    if (m<0) {
+        Pmm = power(-1, dabs(m)) * factorial(0) / factorial(2*dabs(m)) * Pmm;
+    }
+    result[0] = Pmm;
+    if (m==l) {
+        // we are done
+        return result;
+    }
+    
+    double amp1m = 1.0;
+    for (int k = 1; k<=dabs(m)+1; ++k) {
+        amp1m *= (2*k+1)/(2*k);
+    }
+    amp1m = power(-1,dabs(l)) * sqrtf(amp1m);
+    double Pmp1m = amp1m * x * sqrtf(power(1 - x * x, dabs(m)));
+    if (m<0) {
+        Pmp1m = power(-1, dabs(m)) * factorial(0) / factorial(2*dabs(m)) * Pmp1m;
+    }
+    result[1] = Pmp1m;
+    if (m == l-1) {
+        return result;
+    } else {
+        return legendreuplooptrace(l, m, x, result);
     }
 }
-__device__ double* alegtrace(int l, int m, double x) {
-    // return legendredown_Nath(l, m, x);
-    double *result = new double[l-m+1];
-    return legendreuplooptrace(l, m, x, abs(m), 0., 0., result);
-}
-__global__ void kernel_lambda_lmt_tl(int lmax, int mmax, int size_theta, double *theta,  double *sht) {
+__global__ void kernel_lambda_lmt_tl(const int lmax, const int mmax, int size_theta, double *theta, double *sht) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size_theta*(lmax-mmax)) {
-        // iterate over all blocks
+    if (idx <= size_theta*(lmax-abs(mmax)+1)) {
         double *buff = alegtrace(lmax, mmax, cos(theta[idx]));
-        for (size_t i=0; i<lmax-mmax; i++) {
-            sht[idx*(lmax-mmax)+i] = (double)idx;//dsqrt(2) * normalization_constant(mmax+i, mmax) * buff[i];
+        for (size_t i=0; i<=lmax-abs(mmax); i++) {
+            sht[idx+i*size_theta] = buff[i]; //dsqrt(2) * normalization_constant(abs(mmax)+i, abs(mmax)) * 
+            __syncthreads();
         }
     }
 }
@@ -296,18 +285,18 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
     for (int i = 0; i < size_alm; ++i) {
         alm[i] = Complex(0.0, 0.0);
     }
-    int m_ = 1;
+    int m_ = 4;
     for (size_t l=0; l<=lmax;l++){
-        // if (l>=2*m_){
+        if (l==8){
             alm[getidx(lmax,l,m_)] = Complex(1.0, 1.0);
-        // }
+        }
     }
 
     for (int i = 0; i < size_alm; ++i) {
         printf("%.2f+%.2fi, ", alm[i].real(), alm[i].imag());
     }
     printf("\n");
-    double interface_result[(2*lmax+1)*Nlat];
+    
     int NumBlocks = (Nlat+1024-1)/1024;
     
     std::vector<double> phi = linspace(0., 2. * M_PI, Nlon);
@@ -317,33 +306,44 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
     const auto& Theta = mesh.second;
     int size_f = (lmax+1)*Nlat;
     std::vector<std::complex<double>> F(size_f, std::complex<double>(0.0, 0.0));
+
+    cudaMalloc((void**)&device_theta, Nlat * sizeof(double));
+    cudaMemcpy(device_theta, theta.data(), Nlat * sizeof(double), cudaMemcpyHostToDevice);
     
     for (size_t m=0; m<=lmax; m++) {
-        for (size_t m_=0; m<2; m++){
-            // for (size_t l=m; l<=lmax; l++) {
-            cudaMalloc((void**)&device_theta, Nlat * sizeof(double));
-            cudaMalloc((void**)&device_result, (lmax-m) * Nlat * sizeof(double));
-            cudaMemcpy(device_theta, theta.data(), Nlat * sizeof(double), cudaMemcpyHostToDevice);
-            kernel_lambda_lmt_tl<<<NumBlocks, 1024>>>(lmax, hpower(-1,m_)*m_, Nlat, device_theta, device_result);
+        int m_max = m==0?1:2;
+        for (size_t m_=0; m_<m_max; m_++){
+            double interface_result[(lmax-m+1) * Nlat];
+            cudaMalloc((void**)&device_result, (lmax-m+1) * Nlat * sizeof(double));
+            int mmax_ = m_%2==0?1*m:-1*m;
+            kernel_lambda_lmt_tl<<<NumBlocks, 1024>>>(lmax, mmax_, Nlat, device_theta, device_result);
             cudaDeviceSynchronize();
-            cudaMemcpy(interface_result, device_result, (lmax-m) * Nlat * sizeof(double), cudaMemcpyDeviceToHost);
-            for (int i = 0; i < (lmax-m) * Nlat; ++i) {
-                printf("%.2f, ", interface_result[i]);
-            }
-            printf("\n\n");
+            cudaMemcpy(interface_result, device_result, (lmax-m+1) * Nlat * sizeof(double), cudaMemcpyDeviceToHost);
+            // printf("(lmax, mmax), lambda_lmt(%d, %d)= ", lmax, mmax_);
+            // for (int i = 0; i < (lmax-habs(m)+1) * Nlat; i++) {
+            //     printf("%.2f, ", interface_result[i]);
+            // }
+            // printf("\n");
 
             //kernel_accumulateF<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
             for (size_t l=m; l<=lmax; l++) {
-                for (int ringi = 0; ringi < Nlat; ++ringi) {
+                // printf("l=%d, m=%d, getidx()=%d\n", l,m,getidx(lmax, l, m));
+                for (size_t ringi = 0; ringi < Nlat; ++ringi) {
+                    // printf("%d ", l*Nlat+ringi);
                     if (m_==0) {
-                        F[m*Nlat+ringi] += alm[getidx(lmax, l, m)] * interface_result[m*Nlat+ringi];
+                        F[m*Nlat+ringi] += alm[getidx(lmax, l, m)] * interface_result[(l-m)*Nlat+ringi];
                     } else {
-                        F[m*Nlat+ringi] += conj(alm[getidx(lmax, l, m)]) * interface_result[m*Nlat+ringi];
+                        F[m*Nlat+ringi] += conj(alm[getidx(lmax, l, m)]) * interface_result[(l-m)*Nlat+ringi];
                     }
                 }
-                cudaFree(device_theta);
-                cudaFree(device_result);
+                // printf("\n");
+                // printf("+F(%d)= ", m_%2==0?1*m:-1*m);
+                // for (int i = 0; i < (lmax+1)*Nlat; i++) {
+                //     printf("%.2f, ", F[i]);
+                // }printf("\n\n");
             }
+            // cudaFree(device_theta);
+            cudaFree(device_result);
         }
     }
     //kernel_FT<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
@@ -356,3 +356,16 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
         }
     }
 }
+
+
+// cudaError_t errSync  = cudaGetLastError();
+// cudaError_t errAsync = cudaDeviceSynchronize();
+// if (errSync != cudaSuccess) 
+// printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+// if (errAsync != cudaSuccess)
+// printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+
+// cudaError_t cuda_error = cudaGetLastError();
+// if (cuda_error != cudaSuccess) {
+//     printf("CUDA error: %s\n", cudaGetErrorString(cuda_error));
+// }

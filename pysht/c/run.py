@@ -83,8 +83,8 @@ def synthesis_ringl():
     cuda_lib.synthesis_ringl.restype = None
 
     # Prepare data
-    lmax_ = 5
-    Nlat, Nlon = 5, 5
+    lmax_ = 10
+    Nlat, Nlon = 1000, 1000
     size_ = Nlat*Nlon
     output_array = np.zeros(shape=size_, dtype=np.double)
     ll = np.arange(lmax_+1)
