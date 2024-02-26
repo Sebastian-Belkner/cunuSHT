@@ -205,7 +205,7 @@ __global__ void compute_ALPs(int lmax, int mmax, int size_x, double *x, double *
     }
 }
 
-__device__ double* legendreuplooptrace(int l, int m, double x, int cl, double Plm, double Plm1m, double *result) {
+__device__ *double legendreuplooptrace(int l, int m, double x, int cl, double Plm, double Plm1m, double *result) {
     // initialize with Pmm and Pmp1m, then walk upways and pass previous values, store result 
     if (cl == abs(m)){
         double Pmm;
@@ -237,7 +237,7 @@ __device__ double* legendreuplooptrace(int l, int m, double x, int cl, double Pl
         if (cl == l-1) {
             return result;
         } else {
-            return legendreuplooptrace(l, abs(m), x, cl+1, Pmp1m, Pmm, result);
+            return legendreuploop(l, abs(m), x, cl+1, Pmp1m, Pmm, result);
         }
     }
     // cl starts with m, and goes up to l
@@ -265,18 +265,17 @@ __device__ double* legendreuplooptrace(int l, int m, double x, int cl, double Pl
         }
     }
 }
-__device__ double* alegtrace(int l, int m, double x) {
+__device__ *double alegtrace(int l, int m, double x) {
     // return legendredown_Nath(l, m, x);
-    double *result = new double[l-m+1];
-    return legendreuplooptrace(l, m, x, abs(m), 0., 0., result);
+    return legendreuplooptrace(l, m, x, abs(m), 0., 0.);
 }
 __global__ void kernel_lambda_lmt_tl(int lmax, int mmax, int size_theta, double *theta,  double *sht) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size_theta*(lmax-mmax)) {
         // iterate over all blocks
-        double *buff = alegtrace(lmax, mmax, cos(theta[idx]));
-        for (size_t i=0; i<lmax-mmax; i++) {
-            sht[idx*(lmax-mmax)+i] = (double)idx;//dsqrt(2) * normalization_constant(mmax+i, mmax) * buff[i];
+        double *buff = dsqrt(2) * normalization_constant(lmax, mmax) * alegtrace(lmax, mmax, cos(theta[idx]));
+        for (size_t i; i<lmax-mmax; i++) {
+            sht[idx*lmax-mmax+i] = buff[i];
         }
     }
 }
@@ -327,10 +326,6 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
             kernel_lambda_lmt_tl<<<NumBlocks, 1024>>>(lmax, hpower(-1,m_)*m_, Nlat, device_theta, device_result);
             cudaDeviceSynchronize();
             cudaMemcpy(interface_result, device_result, (lmax-m) * Nlat * sizeof(double), cudaMemcpyDeviceToHost);
-            for (int i = 0; i < (lmax-m) * Nlat; ++i) {
-                printf("%.2f, ", interface_result[i]);
-            }
-            printf("\n\n");
 
             //kernel_accumulateF<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
             for (size_t l=m; l<=lmax; l++) {
@@ -355,4 +350,151 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
             }
         }
     }
+}
+
+__global__ void kernel_lambda_lmt_allt(int lmax, int mmax, int size_theta, double *theta,  double *sht) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size_theta) {
+        // iterate over all blocks
+        sht[idx] = dsqrt(2) * normalization_constant(lmax, mmax) * aleg(lmax, mmax, cos(theta[idx]));
+        // sht[idx] += dsqrt(2) * normalization_constant(lmax, mmax) * aleg(lmax, -mmax, cos(theta[idx]));
+    }
+}
+extern "C" void synthesis_ring(int size_alm, int Nlat, int Nlon, double *host_result) {
+    printf("synthesis_ring\n");
+    double *device_theta, *device_result;
+    
+    // std::vector<Complex> alm = random_alm(size_alm);
+    // int lmax = getlmax(size_alm); //sizeof(alm)/sizeof(alm[0])
+    // for (int i = 0; i < size_alm; ++i) {
+    //     printf("%.2f+%.2fi, ", alm[i].real(), alm[i].imag());
+    // }
+    // printf("\n");
+
+    std::vector<Complex> alm(size_alm);
+    int lmax = getlmax(size_alm); //sizeof(alm)/sizeof(alm[0])
+    for (int i = 0; i < size_alm; ++i) {
+        alm[i] = Complex(0.0, 0.0);
+    }
+    int m_ = 1;
+    for (size_t l=0; l<=lmax;l++){
+        // if (l>=2*m_){
+            alm[getidx(lmax,l,m_)] = Complex(1.0, 1.0);
+        // }
+    }
+
+    for (int i = 0; i < size_alm; ++i) {
+        printf("%.2f+%.2fi, ", alm[i].real(), alm[i].imag());
+    }
+    printf("\n");
+    double interface_result[(2*lmax+1)*Nlat];
+    int NumBlocks = (Nlat+1024-1)/1024;
+    
+    std::vector<double> phi = linspace(0., 2. * M_PI, Nlon);
+    std::vector<double> theta = linspace(0., M_PI, Nlat);
+    auto mesh = meshgrid_1d(phi, theta);
+    const auto& Phi = mesh.first;
+    const auto& Theta = mesh.second;
+    int size_f = (lmax+1)*Nlat;
+    std::vector<std::complex<double>> F(size_f, std::complex<double>(0.0, 0.0));
+    
+    for (size_t m=0; m<=lmax; m++) {
+        for (size_t m_=0; m<2; m++){
+            for (size_t l=m; l<=lmax; l++) {
+                cudaMalloc((void**)&device_theta, Nlat * sizeof(double));
+                cudaMalloc((void**)&device_result, Nlat * sizeof(double));
+                cudaMemcpy(device_theta, theta.data(), Nlat * sizeof(double), cudaMemcpyHostToDevice);
+                kernel_lambda_lmt_allt<<<NumBlocks, 1024>>>(l, hpower(-1,m_)*m_, Nlat, device_theta, device_result);
+                cudaDeviceSynchronize();
+                cudaMemcpy(interface_result, device_result, Nlat * sizeof(double), cudaMemcpyDeviceToHost);
+                //kernel_accumulateF<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
+                for (int ringi = 0; ringi < Nlat; ++ringi) {
+                    if (m_==0) {
+                        F[m*Nlat+ringi] += alm[getidx(lmax, l, m)] * interface_result[ringi];
+                    } else {
+                        F[m*Nlat+ringi] += conj(alm[getidx(lmax, l, m)]) * interface_result[ringi];
+                    }
+                }
+                cudaFree(device_theta);
+                cudaFree(device_result);
+            }
+        }
+    }
+    //kernel_FT<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
+    for (size_t m=0; m<=lmax; m++) {
+        for (size_t ringi=0; ringi<Nlat; ringi++) {
+            for (size_t y=0;y<Nlon; y++) {
+                double phi_ = Phi[y];
+                host_result[ringi*Nlat+y] += real(F[m*Nlat+ringi])*cos(m*phi_);
+            }
+        }
+    }
+}
+
+__global__ void kernel_sht_NlonNlat(int lmax, int mmax, int size_phi, int size_theta, double *phi, double *theta,  double *sht) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < size_phi*size_theta) {
+        // iterate over all blocks
+        double phi_ = phi[idx];
+        if (mmax<0) {
+            sht[idx] = dsqrt(2) * normalization_constant(lmax, mmax) * aleg(lmax, mmax, cos(theta[idx])) * sin(abs(mmax) * phi_);
+        } else if (mmax>0) {
+            sht[idx] = dsqrt(2) * normalization_constant(lmax, mmax) * aleg(lmax, mmax, cos(theta[idx])) * cos(mmax * phi_);
+        } else {
+            sht[idx] = normalization_constant(lmax, mmax) * aleg(lmax, 0, cos(theta[idx]));
+        }
+    }
+}
+
+extern "C" void synthesis_NlonNlat(int lmax, int mmax, int Nlat, int Nlon, double *host_result) {
+    typedef std::complex<double> Complex;
+    double *device_phi, *device_theta;
+    double *device_result;
+
+    std::vector<double> phi = linspace(0., 2. * M_PI, Nlon);
+    std::vector<double> theta = linspace(0., M_PI, Nlat);
+    
+    auto mesh = meshgrid_1d(phi, theta);
+
+    const auto& Phi = mesh.first;
+    const auto& Theta = mesh.second;
+
+    // printf("phi: ");
+    // for (size_t i = 0; i < Phi.size(); ++i) {
+    //     printf("%.3f ", Phi.data()[i]);
+    // }
+    // printf("\n--\n");
+    // printf("theta: ");
+    // for (size_t i = 0; i < Theta.size(); ++i) {
+    //     printf("%.3f ", Theta.data()[i]);
+    // }
+    // printf("\n--\n");
+
+    cudaMalloc((void**)&device_phi, Nlon*Nlat * sizeof(double));
+    cudaMalloc((void**)&device_theta, Nlon*Nlat * sizeof(double));
+    cudaMalloc((void**)&device_result, Nlon*Nlat * sizeof(double));
+    // std::vector<double> map(Nlon*Nlat, 0.0f);
+
+    // for (int l=0; l<lmax+1;l++){
+        // for (int m=-l; m<l+1;m++){
+
+    cudaMemcpy(device_phi, Phi.data(), Nlon*Nlat * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_theta, Theta.data(), Nlon*Nlat * sizeof(double), cudaMemcpyHostToDevice);
+    // kernel_sht<<<Nlat, Nlon>>>(lmax, mmax, Nlon, Nlat, device_phi, device_theta, device_result);
+    kernel_sht_NlonNlat<<<Nlat, Nlon>>>(lmax, mmax, Nlon, Nlat, device_phi, device_theta, device_result);
+    cudaDeviceSynchronize();
+    cudaMemcpy(host_result, device_result, Nlon*Nlat * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    // for (int i = 0; i < Nlon*Nlat; ++i) {
+    //     printf("%.4f ", host_result[i]);
+    //     }
+    // printf("\n-----\n");
+    cudaFree(device_phi);
+    cudaFree(device_result);
+    // printf("\nPhi: ");
+    // for (int i = 0; i < Nlon; ++i) {
+    //     for (int j = 0; j < Nlat; ++j) {
+    //         printf("%f ", Phi[i][j]);
+    //     }
+    // }
 }
