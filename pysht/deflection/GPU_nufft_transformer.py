@@ -12,7 +12,7 @@ import cupy as cp
 
 import pysht.geometry as geometry
 from pysht.geometry import Geom
-from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
+from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
          np.dtype(np.float64): np.complex128,
@@ -49,7 +49,7 @@ def ducc_sht_mode(gclm, spin):
 
 class GPU_cufinufft_transformer:
     def __init__(self):
-        self.backend = 'CPU'
+        self.backend = 'GPU'
         self.single_prec = True
         self.verbosity = 1
         self.tim = timer(verbose=self.verbosity)
@@ -58,13 +58,25 @@ class GPU_cufinufft_transformer:
         self.planned = False
         self._cis = False
         self.cacher = cachers.cacher_mem()
-        self.sht_transformer = CPU_SHT_DUCC_transformer()
+        self.sht_transformer = CPU_SHT_SHTns_transformer()
         self.epsilon = 1e-7
+        
+        # TODO these guys need to be set
+        self.dlm = None
+        self.lmax_dlm = None
+        self.mmax_dlm = None
 
 
     def set_geometry(self, geom_desc):
         self.geom = geometry.get_geom(geom_desc)
         self.sht_transformer.set_geometry(geom_desc)
+
+
+    def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):
+        assert len(dlm) == 2, (len(dlm), 'gradient and curl mode (curl can be none)')
+        self.dlm = dlm
+        self.mmax_dlm = mmax_dlm
+        return self
 
 
     def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
@@ -162,22 +174,7 @@ class GPU_cufinufft_transformer:
         if self.single_prec and gclm.dtype != np.complex64:
             gclm = gclm.astype(np.complex64)
             self.tim.add('type conversion')
-        if spin == 0 and self._totalconvolves0: # this will probably just disappear
-            # The code below would work just as well for spin-0 but seems slightly slower
-            # For the moment this seems faster
-            blm_T = blm_gauss(0, lmax_unl, 0)
-            self.tim.add('blm_gauss')
-            if ptg is None:
-                ptg = self._build_angles()
-            self.tim.add('ptg')
-            assert mmax == lmax_unl
-            # FIXME: this might only accept doubple prec input
-            inter_I = ducc0.totalconvolve.Interpolator(gclm, blm_T, separate=False, lmax=lmax_unl,
-                                                        kmax=0,
-                                                        epsilon=self.epsilon, ofactor=self.ofactor,
-                                                        nthreads=self.sht_tr)
-            ret = inter_I.interpol(ptg).squeeze()
-            return ret
+
         # transform slm to Clenshaw-Curtis map
         ntheta = ducc0.fft.good_size(lmax_unl + 2)
         nphihalf = ducc0.fft.good_size(lmax_unl + 1)
@@ -242,6 +239,129 @@ class GPU_cufinufft_transformer:
         return (values.real, ptg, map_dfs) if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
+    def gclm2lenmap(self, args, kwargs):
+        # TODO cheap name mapping until proper naming convention is established
+        return self.synthesis_general(*args, **kwargs)
+
+
+    def lenmap2gclm(self, points:np.ndarray[complex or float], spin:int, lmax:int, mmax:int, gclm_out=None, sht_mode='STANDARD'):
+        """
+            Note:
+                points mst be already quadrature-weigthed
+                For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
+        """
+        self.tim.reset()
+        if spin == 0 and not np.iscomplexobj(points):
+            points = points.astype(ctype[points.dtype]).squeeze()
+        if spin > 0 and not np.iscomplexobj(points):
+            points = (points[0] + 1j * points[1]).squeeze()
+        ptg = self._get_ptg()
+
+        ntheta = ducc0.fft.good_size(lmax + 2)
+        nphihalf = ducc0.fft.good_size(lmax + 1)
+        nphi = 2 * nphihalf
+        map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=points.dtype)
+        if self.planned:
+            plan = self.make_plan(lmax, spin)
+            map_dfs = plan.nu2u(points=points, out=map_dfs, forward=True, verbosity=self.verbosity)
+
+        else:
+            # perform NUFFT
+        
+            map_dfs = ducc0.nufft.nu2u(points=points, coord=ptg, out=map_dfs, forward=True,
+                                       epsilon=self.epsilon, nthreads=self.sht_tr, verbosity=self.verbosity,
+                                       periodicity=2 * np.pi, fft_order=True)
+        # go to position space
+        map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), forward=False, inorm=2, nthreads=self.sht_tr, out=map_dfs)
+
+        # go from double Fourier sphere to Clenshaw-Curtis grid
+        if (spin % 2) != 0:
+            map_dfs[1:ntheta - 1, :nphihalf] -= map_dfs[-1:ntheta - 1:-1, nphihalf:]
+            map_dfs[1:ntheta - 1, nphihalf:] -= map_dfs[-1:ntheta - 1:-1, :nphihalf]
+        else:
+            map_dfs[1:ntheta - 1, :nphihalf] += map_dfs[-1:ntheta - 1:-1, nphihalf:]
+            map_dfs[1:ntheta - 1, nphihalf:] += map_dfs[-1:ntheta - 1:-1, :nphihalf]
+        map_dfs = map_dfs[:ntheta, :]
+        map = np.empty((1 if spin == 0 else 2, ntheta, nphi), dtype=rtype[points.dtype])
+        map[0] = map_dfs.real
+        if spin > 0:
+            map[1] = map_dfs.imag
+        del map_dfs
+
+        # adjoint SHT synthesis
+        slm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.sht_tr, mode=sht_mode, alm=gclm_out)
+        return slm.squeeze()
+    
+
+    def lensgclm(self, gclm:np.ndarray, mmax:int or None, spin:int, lmax_out:int, mmax_out:int or None,
+                 gclm_out:np.ndarray=None, backwards=False, nomagn=False, polrot=True, out_sht_mode='STANDARD'):
+        """Adjoint remapping operation from lensed alm space to unlensed alm space
+
+            Args:
+                gclm: input gradient and possibly curl mode ((1 or 2, nalm)-shaped complex numpy.ndarray)
+                mmax: set this for non-standard mmax != lmax in input array
+                spin: spin-weight of the fields (larger or equal 0)
+                lmax_out: desired output array lmax
+                mmax_out: desired output array mmax (defaults to lmax_out if None)
+                gclm_out(optional): output array (can be same as gclm provided it is large enough)
+                backwards: forward or adjoint (not the same as inverse) lensing operation
+                polrot(optional): includes small rotation of spin-weighted fields (defaults to True)
+                out_sht_mode(optional): e.g. 'GRAD_ONLY' if only the output gradient mode is desired
+
+
+            Note:
+                 nomagn=True is a backward comptability thing to ask for inverse lensing
+
+
+        """
+        stri = 'lengclm ' + 'bwd' * backwards + 'fwd' * (not backwards)
+        self.tim.start(stri)
+        self.tim.reset()
+        input_sht_mode = ducc_sht_mode(gclm, spin)
+        if nomagn:
+            assert backwards
+        if mmax_out is None:
+            mmax_out = lmax_out
+        if self.sig_d <= 0 and np.abs(self.geom.fsky() - 1.) < 1e-6:
+            # no actual deflection and single-precision full-sky
+            ncomp_out = 1 + (spin != 0) * (out_sht_mode == 'STANDARD')
+            if gclm_out is None:
+                gclm_out = np.empty((ncomp_out, Alm.getsize(lmax_out, mmax_out)),  dtype=gclm.dtype)
+            assert gclm_out.ndim == 2 and gclm_out.shape[0] == ncomp_out, (gclm_out.shape, ncomp_out)
+            gclm_2d = np.atleast_2d(gclm)
+            gclm_out[0] = alm_copy(gclm_2d[0], mmax, lmax_out, mmax_out)
+            if ncomp_out > 1:
+                gclm_out[1] = 0. if input_sht_mode == 'GRAD_ONLY' else alm_copy(gclm_2d[1], mmax, lmax_out, mmax_out)
+            self.tim.close(stri)
+            return gclm_out.squeeze()
+        if not backwards:
+            m = self.gclm2lenmap(gclm, mmax, spin, backwards, polrot=polrot)
+            self.tim.reset()
+            if gclm_out is not None:
+                assert gclm_out.dtype == ctype[m.dtype], 'type precision must match'
+            gclm_out = self.geom.adjoint_synthesis(m, spin, lmax_out, mmax_out, self.sht_tr, alm=gclm_out,
+                                                   mode=out_sht_mode)
+            return gclm_out.squeeze()
+        else:
+            if self.single_prec and gclm.dtype != np.complex64:
+                gclm = gclm.astype(np.complex64)
+
+                lmax_unl = Alm.getlmax(gclm.size, mmax)
+                points = self.geom.synthesis(gclm, spin, lmax_unl, mmax, self.sht_tr, mode=input_sht_mode)
+                self.tim.add('points synthesis (%s)'%input_sht_mode)
+                if nomagn:
+                    points *= self.dlm2A()
+
+            assert points.ndim == 2 and not np.iscomplexobj(points)
+            for ofs, w, nph in zip(self.geom.ofs, self.geom.weight, self.geom.nph):
+                points[:, ofs:ofs + nph] *= w
+
+            slm = self.lenmap2gclm(points, spin, lmax_out, mmax_out, sht_mode=out_sht_mode, gclm_out=gclm_out)
+            self.tim.close(stri)
+
+            return slm
+    
+        
     def adjoint_synthesis_general(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
         """
             Note:
@@ -303,3 +423,10 @@ class GPU_cufinufft_transformer:
 
     def synthesis(self, dlm, spin, lmax, mmax, nthreads, mode='STANDARD'):
         return self.sht_transformer.synthesis(dlm, spin=spin, lmax=lmax, mmax=mmax, nthreads=nthreads, mode=mode)
+
+
+    def hashdict():
+        '''
+        Compatibility with delensalot
+        '''
+        return "GPU_cufinufft_transformer"
