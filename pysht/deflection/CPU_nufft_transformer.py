@@ -45,8 +45,31 @@ def ducc_sht_mode(gclm, spin):
     gclm_ = np.atleast_2d(gclm)
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
 
-
 class deflection:
+    def __init__(self, lens_geom:Geom, dglm, mmax_dlm:int or None, numthreads:int=0, cacher:cachers.cacher or None=None, dclm:np.ndarray or None=None, epsilon=1e-5, verbosity=0, single_prec=True, planned=False):
+        self.single_prec = True
+        self.verbosity = 1
+        self.tim = timer(verbose=self.verbosity)
+        self.sht_tr = 4
+        self.planned = False
+        self._cis = False
+        self.cacher = cachers.cacher_mem()
+        self.epsilon = 1e-7
+        
+        # TODO these guys need to be set
+        self.dlm = None
+        self.lmax_dlm = None
+        self.mmax_dlm = None
+        
+        s2_d = np.sum(alm2cl(dlm, dlm, lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
+        sig_d = np.sqrt(s2_d / self.geom.fsky())
+        sig_d_amin = sig_d / np.pi * 180 * 60
+        if self.sig_d >= 0.01:
+            print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
+        elif self.verbosity:
+            print('deflection std is %.2e amin' % sig_d_amin)
+            
+
     def set_nufftgeometry(self, geom_desc):
         self.nufftgeom = geometry.get_geom(geom_desc)
         self.set_geometry(geom_desc)
@@ -799,16 +822,6 @@ class CPU_DUCCnufft_transformer(deflection):
 class CPU_DUCC_transformer(deflection):
     def __init__(self, shttransformer_desc):
         self.backend = 'CPU'
-        self.single_prec = False
-        self.verbosity = 1
-        self.tim = timer(verbose=self.verbosity)
-        self._totalconvolves0 = False
-        self.sht_tr = 4
-        self.planned = False
-        self._cis = False
-        self.cacher = cachers.cacher_mem()
-        self.epsilon = 1e-7
-
 
         if shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})

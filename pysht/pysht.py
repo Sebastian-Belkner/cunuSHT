@@ -26,6 +26,8 @@ class CPU_nuFFT_Transformer:
             return CPU_DUCC_transformer(shttransformer_desc='ducc')
         elif solver in ['finufft']:
             return CPU_finufft_transformer(shttransformer_desc='ducc')
+        else:
+            assert 0, "Solver not found"
 
 class GPU_SHT_Transformer:
     def build(self, solver):

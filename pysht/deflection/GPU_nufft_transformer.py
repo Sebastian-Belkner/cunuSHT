@@ -50,16 +50,39 @@ def ducc_sht_mode(gclm, spin):
 
 
 class deflection:
+    def __init__(self, lens_geom:Geom, dglm, mmax_dlm:int or None, numthreads:int=0, cacher:cachers.cacher or None=None, dclm:np.ndarray or None=None, epsilon=1e-5, verbosity=0, single_prec=True, planned=False):
+        self.single_prec = True
+        self.verbosity = 1
+        self.tim = timer(verbose=self.verbosity)
+        self.sht_tr = 4
+        self.planned = False
+        self._cis = False
+        self.cacher = cachers.cacher_mem()
+        self.epsilon = 1e-7
+        
+        # TODO these guys need to be set
+        self.dlm = None
+        self.lmax_dlm = None
+        self.mmax_dlm = None
+        
+        s2_d = np.sum(alm2cl(dlm, dlm, lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
+        sig_d = np.sqrt(s2_d / self.geom.fsky())
+        sig_d_amin = sig_d / np.pi * 180 * 60
+        if self.sig_d >= 0.01:
+            print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
+        elif self.verbosity:
+            print('deflection std is %.2e amin' % sig_d_amin)
+            
     def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
         if dclm is None:
             # undo p2d to use
-            d1 = ducc_transformer.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr, mode='GRAD_ONLY')
+            d1 = self.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr, mode='GRAD_ONLY')
         else:
             # FIXME: want to do that only once
             dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
             dgclm[0] = dlm
             dgclm[1] = dclm
-            d1 = ducc_transformer.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr)
+            d1 = self.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr)
         return np.atleast_2d(d1)
 
 
@@ -134,20 +157,7 @@ class deflection:
 class GPU_cufinufft_transformer(deflection):
     def __init__(self, shttransformer_desc):
         self.backend = 'GPU'
-        self.single_prec = True
-        self.verbosity = 1
-        self.tim = timer(verbose=self.verbosity)
-        self._totalconvolves0 = False
-        self.sht_tr = 4
-        self.planned = False
-        self._cis = False
-        self.cacher = cachers.cacher_mem()
-        self.epsilon = 1e-7
-        
-        # TODO these guys need to be set
-        self.dlm = None
-        self.lmax_dlm = None
-        self.mmax_dlm = None
+        super(deflection).__init__()
         
         if shttransformer_desc == 'shtns':
             self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
@@ -175,13 +185,6 @@ class GPU_cufinufft_transformer(deflection):
                 spin: spin (>=0) of the transform
                 backwards: forward or backward (adjoint) operation
         """ 
-        s2_d = np.sum(alm2cl(dlm, dlm, lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
-        sig_d = np.sqrt(s2_d / self.geom.fsky())
-        sig_d_amin = sig_d / np.pi * 180 * 60
-        if sig_d >= 0.01:
-            print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
-        elif self.verbosity:
-            print('deflection std is %.2e amin' % sig_d_amin)
             
         gclm = np.atleast_2d(gclm)
         lmax_unl = Alm.getlmax(gclm[0].size, mmax)
@@ -255,7 +258,7 @@ class GPU_cufinufft_transformer(deflection):
         return (values.real, ptg, map_dfs) if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
-    def lenmap2gclm(self, points:np.ndarray[complex or float], spin:int, lmax:int, mmax:int, gclm_out=None, sht_mode='STANDARD'):
+    def lenmap2gclm(self, points:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, gclm_out=None, sht_mode='STANDARD'):
         """
             Note:
                 points mst be already quadrature-weigthed
@@ -266,7 +269,8 @@ class GPU_cufinufft_transformer(deflection):
             points = points.astype(ctype[points.dtype]).squeeze()
         if spin > 0 and not np.iscomplexobj(points):
             points = (points[0] + 1j * points[1]).squeeze()
-        ptg = self._get_ptg()
+        ptg = self._get_ptg(dlm, mmax, self.geominfo)
+
 
         ntheta = ducc0.fft.good_size(lmax + 2)
         nphihalf = ducc0.fft.good_size(lmax + 1)
@@ -304,8 +308,7 @@ class GPU_cufinufft_transformer(deflection):
         return slm.squeeze()
     
 
-    def lensgclm(self, gclm:np.ndarray, mmax:int or None, spin:int, lmax_out:int, mmax_out:int or None,
-                 gclm_out:np.ndarray=None, backwards=False, nomagn=False, polrot=True, out_sht_mode='STANDARD'):
+    def lensgclm(self, gclm:np.ndarray, spin:int, lmax_out:int, mmax:int=None, mmax_out:int=None, gclm_out:np.ndarray=None, backwards=False, nomagn=False, polrot=True, out_sht_mode='STANDARD'):
         """Adjoint remapping operation from lensed alm space to unlensed alm space
 
             Args:
@@ -389,7 +392,7 @@ class GPU_cufinufft_transformer(deflection):
             points = points.astype(ctype[points.dtype]).squeeze()
         if spin > 0 and not np.iscomplexobj(points):
             points = (points[0] + 1j * points[1]).squeeze()
-        ptg = self._get_ptgdlm, mmax()
+        ptg = self._get_ptg(dlm, mmax, self.geominfo)
 
 
         ntheta = ducc0.fft.good_size(lmax + 2)

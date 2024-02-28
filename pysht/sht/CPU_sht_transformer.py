@@ -16,6 +16,8 @@ class CPU_SHT_DUCC_transformer():
 
 
     def set_geometry(self, geom_desc):
+        if 'mmax' in geom_desc[1]:
+            del geom_desc[1]['mmax']
         self.geom = geometry.get_geom(geom_desc)
 
 

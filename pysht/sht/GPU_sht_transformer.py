@@ -13,6 +13,8 @@ class GPU_SHTns_transformer():
     def set_geometry(self, geominfo):
         #TODO perhaps namechange: set_geometry is more a constructor + set_grid in shtns
         #TODO get geom from SHTns
+        if 'mmax' in geominfo[1]:
+            del geominfo[1]['mmax']
         self.geom = geometry.get_geom(geominfo)
         import copy
         self.geominfo = copy.deepcopy(geominfo)
