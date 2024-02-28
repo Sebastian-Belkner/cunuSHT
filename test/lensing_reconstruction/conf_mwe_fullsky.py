@@ -19,7 +19,11 @@ dlensalot_model = DLENSALOT_Model(
     defaults_to = 'default_CMBS4_fullsky_polarization',
     job = DLENSALOT_Job(
         jobs = ["generate_sim", "QE_lensrec", "MAP_lensrec"]
-    ),                          
+    ),
+    computing = DLENSALOT_Computing(
+        solver = 'ducc',
+        backend = 'CPU',
+    ),    
     analysis = DLENSALOT_Analysis(
         key = 'ptt',
         simidxs = np.arange(0,1),
@@ -38,6 +42,10 @@ dlensalot_model = DLENSALOT_Model(
         geominfo = ('healpix', {'nside': 2048}),
         lenjob_geominfo = ('thingauss', {'lmax': 4200 + 300, 'smax': 3}),
         CMB_fn = opj(os.path.dirname(delensalot.__file__), 'data', 'cls', 'FFP10_wdipole_lenspotentialCls.dat'),
+        sht_solver = 'ducc',
+        sht_backend = 'CPU',
+        deflection_solver = 'ducc',
+        deflection_backend = 'CPU',
     ),
     noisemodel = DLENSALOT_Noisemodel(
         nlev = {'P': np.sqrt(2), 'T': np.sqrt(1)},

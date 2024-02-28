@@ -6,6 +6,7 @@
 #include <memory>
 #include <complex>
 #include <random>
+#include <cuda_runtime.h>
 
 using namespace std::chrono;
 typedef std::complex<double> Complex;
@@ -269,7 +270,7 @@ __global__ void kernel_lambda_lmt_tl(const int lmax, const int mmax, int size_th
         }
     }
 }
-extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_result) {
+extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_result, int l_, int m_) {
     printf("synthesis_ring\n");
     double *device_theta, *device_result;
     
@@ -285,9 +286,8 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
     for (int i = 0; i < size_alm; ++i) {
         alm[i] = Complex(0.0, 0.0);
     }
-    int m_ = 4;
     for (size_t l=0; l<=lmax;l++){
-        if (l==8){
+        if (l==l_){
             alm[getidx(lmax,l,m_)] = Complex(1.0, 1.0);
         }
     }
@@ -319,6 +319,7 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
             kernel_lambda_lmt_tl<<<NumBlocks, 1024>>>(lmax, mmax_, Nlat, device_theta, device_result);
             cudaDeviceSynchronize();
             cudaMemcpy(interface_result, device_result, (lmax-m+1) * Nlat * sizeof(double), cudaMemcpyDeviceToHost);
+            
             // printf("(lmax, mmax), lambda_lmt(%d, %d)= ", lmax, mmax_);
             // for (int i = 0; i < (lmax-habs(m)+1) * Nlat; i++) {
             //     printf("%.2f, ", interface_result[i]);
@@ -342,30 +343,53 @@ extern "C" void synthesis_ringl(int size_alm, int Nlat, int Nlon, double *host_r
                 //     printf("%.2f, ", F[i]);
                 // }printf("\n\n");
             }
-            // cudaFree(device_theta);
-            cudaFree(device_result);
         }
     }
+    cudaFree(device_theta);
+    cudaFree(device_result);
     //kernel_FT<<<NumBlocks, 1024>>>(lmax, mmax, Nlat, device_theta, device_result);
     for (size_t m=0; m<=lmax; m++) {
         for (size_t ringi=0; ringi<Nlat; ringi++) {
-            for (size_t y=0;y<Nlon; y++) {
-                double phi_ = Phi[y];
-                host_result[ringi*Nlat+y] += real(F[m*Nlat+ringi])*cos(m*phi_);
+            for (size_t x=0;x<Nlon; x++) {
+                double phi_ = Phi[x];
+                host_result[ringi*Nlat+x] += real(F[m*Nlat+ringi])*cos(m*phi_);
             }
         }
     }
 }
 
 
-// cudaError_t errSync  = cudaGetLastError();
-// cudaError_t errAsync = cudaDeviceSynchronize();
-// if (errSync != cudaSuccess) 
-// printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
-// if (errAsync != cudaSuccess)
-// printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+extern "C" void associated_legendre(int lmax, int mmax, double *host_x, double *host_result, int size_x) {
+    double *device_x, *device_result;
 
-// cudaError_t cuda_error = cudaGetLastError();
-// if (cuda_error != cudaSuccess) {
-//     printf("CUDA error: %s\n", cudaGetErrorString(cuda_error));
-// }
+    // const int threadsPerBlock = 256;
+    // const int blocksPerGrid = (lmax + threadsPerBlock - 1) / threadsPerBlock;
+
+    cudaMalloc((void**)&device_x, size_x * sizeof(double));
+    cudaMalloc((void**)&device_result, size_x * sizeof(double));
+
+    cudaMemcpy(device_x, host_x, size_x * sizeof(double), cudaMemcpyHostToDevice);
+
+    // auto start = high_resolution_clock::now();
+    compute_ALPs<<<1, size_x>>>(lmax, mmax, size_x, device_x, device_result);
+    cudaDeviceSynchronize();
+    // auto stop = high_resolution_clock::now();
+
+    cudaMemcpy(host_result, device_result, size_x * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // for (int l = lmax; l <= lmax; ++l) {
+        // for (int m = 0; m <= l; ++m) {
+
+    // printf("P_%d^%d(x): ",lmax,mmax);
+    // // printf("%d", size_x);
+    // for (int i = 0; i < size_x; ++i) {
+    //     printf("%.2f ", host_result[i]);
+    // }
+    // printf("\n");
+        // }
+    // }
+
+    // Free memory
+    cudaFree(device_x);
+    cudaFree(device_result);
+}

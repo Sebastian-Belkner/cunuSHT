@@ -21,11 +21,11 @@ class CPU_SHT_Transformer:
 class CPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['duccnufft']:
-            return CPU_DUCCnufft_transformer()
+            return CPU_DUCCnufft_transformer(shttransformer_desc='ducc')
         elif solver in ['ducc']:
-            return CPU_DUCC_transformer()
+            return CPU_DUCC_transformer(shttransformer_desc='ducc')
         elif solver in ['finufft']:
-            return CPU_finufft_transformer()
+            return CPU_finufft_transformer(shttransformer_desc='ducc')
 
 class GPU_SHT_Transformer:
     def build(self, solver):
@@ -37,7 +37,7 @@ class GPU_SHT_Transformer:
 class GPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['cufinufft']:
-            return GPU_cufinufft_transformer()
+            return GPU_cufinufft_transformer(shttransformer_desc='shtns')
         else:
             assert 0, "Solver not found"
 

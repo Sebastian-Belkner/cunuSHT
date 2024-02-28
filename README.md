@@ -2,7 +2,7 @@
 general spin-n SHTs on CPU and GPU backend
 
 
-## rust @ Simons
+## Rusty @ Simons
 
 ```
 salloc -p gpu --gpus=1 -C v100 -c 1

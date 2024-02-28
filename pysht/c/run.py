@@ -79,12 +79,15 @@ def synthesis_ringl():
         ctypes.c_int,
         ctypes.c_int,
         ctypes.POINTER(ctypes.c_double),
+        ctypes.c_int,
+        ctypes.c_int
     ]
     cuda_lib.synthesis_ringl.restype = None
 
     # Prepare data
-    lmax_ = 10
-    Nlat, Nlon = 1000, 1000
+    lmax_ = 40
+    mmax_ = 0
+    Nlat, Nlon = 400, 400
     size_ = Nlat*Nlon
     output_array = np.zeros(shape=size_, dtype=np.double)
     ll = np.arange(lmax_+1)
@@ -92,7 +95,6 @@ def synthesis_ringl():
     
     
     alm_ = [c_complex(np.real(a), np.imag(a)) for a in alm_]
-    print(len(alm_))
     # Convert Python lists to ctypes arrays
     lmax = ctypes.c_int(lmax_)
     size = ctypes.c_int(output_array.shape[0])
@@ -101,30 +103,47 @@ def synthesis_ringl():
     result = np.zeros_like(output_x)
     
     
-    f, axarr = plt.subplots(1,1,figsize=(12,12))
-    output_array = np.zeros(shape=size_, dtype=np.double)
-    output_x = (ctypes.c_double * size_)(*output_array)
-    cuda_lib.synthesis_ringl(len(alm_), Nlat, Nlon, output_x)
-    result = np.array(output_x)
-    axarr.imshow(result.reshape(Nlat,Nlon), cmap='YlGnBu')
-    # print(result)
-    plt.savefig('/mnt/home/sbelkner/git/pySHT/pysht/c/result.png')
+    # f, axarr = plt.subplots(1,1,figsize=(12,12))
+    # output_array = np.zeros(shape=size_, dtype=np.double)
+    # output_x = (ctypes.c_double * size_)(*output_array)
+    # l = ctypes.c_int(lmax_)
+    # m = ctypes.c_int(mmax_)
+    # cuda_lib.synthesis_ringl(len(alm_), Nlat, Nlon, output_x, l, m)
+    # result = np.array(output_x)
+    # axarr.imshow(result.reshape(Nlat,Nlon), cmap='YlGnBu')
+    # # print(result)
+    # plt.savefig('/mnt/home/sbelkner/git/pySHT/pysht/c/result.png')
     
-    # loffset = lmax_-5
+    loffset = 30 #lmax_-5
     # f, axarr = plt.subplots(lmax_-loffset,2*lmax_-1-2*loffset,figsize=(18,18))
-    # for l_ in range(loffset,lmax_):
-    #     for m_ in range(-l_+loffset,l_+1-loffset):
-    #         l = ctypes.c_int(l_)
-    #         m = ctypes.c_int(m_)
+    f, axarr = plt.subplots(lmax_-loffset,lmax_-loffset,figsize=(18,18))
+    for l_ in range(loffset,lmax_):
+        for m_ in range(0,l_+1-loffset): #-l_+loffset
+            l = ctypes.c_int(l_)
+            m = ctypes.c_int(m_)
 
-    #         output_array = np.zeros(shape=size_, dtype=np.double)
-    #         output_x = (ctypes.c_double * size_)(*output_array)
-    #         print(l,m)
-    #         cuda_lib.synthesis_ring(l, m, Nlat, Nlon, output_x, size)
-    #         result = np.array(output_x)
-    #         print(result)
-    #         axarr[l_-loffset][int(lmax_)-1+m_-loffset].imshow(result.reshape(Nlat,Nlon), cmap='YlGnBu')
-    # plt.savefig('/mnt/home/sbelkner/git/pySHT/pysht/c/resultall.png')
+            output_array = np.zeros(shape=size_, dtype=np.double)
+            output_x = (ctypes.c_double * size_)(*output_array)
+            print(l_,m_)
+            cuda_lib.synthesis_ringl(len(alm_), Nlat, Nlon, output_x, l, m)
+            result = np.array(output_x)
+            # axarr[l_-loffset][m_-loffset].imshow(result.reshape(Nlat,Nlon), cmap='YlGnBu')
+            axarr[l_-loffset][m_].imshow(result.reshape(Nlat,Nlon), cmap='YlGnBu')
+            
+            ctypes.CDLL(None).dlclose(cuda_lib._handle)
+            cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/assocLeg.so')
+            # Define the function prototype
+            cuda_lib.synthesis_ringl.argtypes = [
+                # ctypes.POINTER(c_complex),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.POINTER(ctypes.c_double),
+                ctypes.c_int,
+                ctypes.c_int
+            ]
+            cuda_lib.synthesis_ringl.restype = None
+    plt.savefig('/mnt/home/sbelkner/git/pySHT/pysht/c/resultall.png')
 
 
 def synthesis_NlonNlat():
@@ -229,8 +248,8 @@ def associatedlegendre():
     cuda_lib.associated_legendre.restype = None
 
     # Prepare data
-    lmax_ = 100
-    mmax_ = 30
+    lmax_ = 10
+    mmax_ = 5
     dx = 0.002
     input_array = np.arange(-1, 1+dx, dx)
     output_array = np.zeros_like(input_array)
@@ -307,9 +326,15 @@ def fibonacci():
     
 if __name__ == "__main__":
     # legendre()
-    # associatedlegendre()
+    associatedlegendre()
     # synthesis_NlonNlat()
     # synthesis_ring()
-    synthesis_ringl()
+    # synthesis_ringl()
     # multiply()
     # fibonacci()
+    
+    
+# for P_l^m(x):
+#     Initialize P_m^m(x): Pmm and Pmp1m
+#     for ll = [m:l]:
+#         P_(ll+1) = a Pmp1m + b Pmm

@@ -12,7 +12,9 @@ import cupy as cp
 
 import pysht.geometry as geometry
 from pysht.geometry import Geom
-from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
+from pysht.sht.GPU_sht_transformer import GPU_SHT_pySHT_transformer, GPU_SHTns_transformer
+from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
+from pysht.deflection.CPU_nufft_transformer import CPU_DUCCnufft_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
          np.dtype(np.float64): np.complex128,
@@ -47,54 +49,21 @@ def ducc_sht_mode(gclm, spin):
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
 
 
-class GPU_cufinufft_transformer:
-    def __init__(self):
-        self.backend = 'GPU'
-        self.single_prec = True
-        self.verbosity = 1
-        self.tim = timer(verbose=self.verbosity)
-        self._totalconvolves0 = False
-        self.sht_tr = 4
-        self.planned = False
-        self._cis = False
-        self.cacher = cachers.cacher_mem()
-        self.sht_transformer = CPU_SHT_SHTns_transformer()
-        self.epsilon = 1e-7
-        
-        # TODO these guys need to be set
-        self.dlm = None
-        self.lmax_dlm = None
-        self.mmax_dlm = None
-
-
-    def set_geometry(self, geom_desc):
-        self.geom = geometry.get_geom(geom_desc)
-        self.sht_transformer.set_geometry(geom_desc)
-
-
-    def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):
-        assert len(dlm) == 2, (len(dlm), 'gradient and curl mode (curl can be none)')
-        self.dlm = dlm
-        self.mmax_dlm = mmax_dlm
-        return self
-
-
+class deflection:
     def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
         if dclm is None:
             # undo p2d to use
-            d1 = self.sht_transformer.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr, mode='GRAD_ONLY')
-            print('build angles <- synthesis (GRAD_ONLY)')
+            d1 = ducc_transformer.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr, mode='GRAD_ONLY')
         else:
             # FIXME: want to do that only once
             dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
             dgclm[0] = dlm
             dgclm[1] = dclm
-            d1 = self.sht_transformer.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr)
-            print('build angles <- synthesis (STANDARD)')
-        return d1
+            d1 = ducc_transformer.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr)
+        return np.atleast_2d(d1)
 
 
-    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
+    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True, geominfo=None):
         """Builds deflected positions and angles
 
             Returns (npix, 3) array with new tht, phi and -gamma
@@ -102,7 +71,11 @@ class GPU_cufinufft_transformer:
         """
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
-            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
+            #TODO need spin-1 synthesis here (not currently supported by shtns). remove ducc_transformer once its implemented
+            ducc_transformer = CPU_DUCCnufft_transformer(shttransformer_desc='ducc')
+            ducc_transformer.set_geometry(self.geominfo)
+            d1 = ducc_transformer._build_d1(dlm, lmax_dlm, mmax_dlm)
+            # d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
@@ -144,14 +117,57 @@ class GPU_cufinufft_transformer:
             return
 
 
-    def _get_ptg(self, dlm, mmax):
+    def _get_ptg(self, dlm, mmax, geominfo):
         # TODO improve this and fwd angles, e.g. this is computed twice for gamma if no cacher
-        self._build_angles(dlm, mmax, mmax) if not self._cis else self._build_angleseig()
+        self._build_angles(dlm, mmax, mmax, geominfo) if not self._cis else self._build_angleseig()
         ptg = self.cacher.load('ptg')
         return ptg
 
 
-    def synthesis_general(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
+    def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):
+        assert len(dlm) == 2, (len(dlm), 'gradient and curl mode (curl can be none)')
+        self.dlm = dlm
+        self.mmax_dlm = mmax_dlm
+        return self
+
+
+class GPU_cufinufft_transformer(deflection):
+    def __init__(self, shttransformer_desc):
+        self.backend = 'GPU'
+        self.single_prec = True
+        self.verbosity = 1
+        self.tim = timer(verbose=self.verbosity)
+        self._totalconvolves0 = False
+        self.sht_tr = 4
+        self.planned = False
+        self._cis = False
+        self.cacher = cachers.cacher_mem()
+        self.epsilon = 1e-7
+        
+        # TODO these guys need to be set
+        self.dlm = None
+        self.lmax_dlm = None
+        self.mmax_dlm = None
+        
+        if shttransformer_desc == 'shtns':
+            self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
+            self.instance = self.BaseClass()
+        elif shttransformer_desc == 'pysht':
+            assert 0, "implement if needed"
+            self.BaseClass = type('GPU_SHT_pySHT_transformer', (GPU_SHT_pySHT_transformer,), {})
+            self.instance = self.BaseClass()
+
+    def __getattr__(self, name):
+        return getattr(self.instance, name)
+
+
+    def set_nufftgeometry(self, geominfo):
+        self.geominfo = geominfo
+        self.nufftgeom = geometry.get_geom(geominfo)
+        self.set_geometry(geominfo)
+
+
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
         """CPU algorithm for spin-n remapping using finufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -213,7 +229,7 @@ class GPU_cufinufft_transformer:
         else:
             ptg = None
             if ptg is None:
-                ptg = self._get_ptg(dlm, mmax)
+                ptg = self._get_ptg(dlm, mmax, self.geominfo)
             self.tim.add('get ptg')
 
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
@@ -237,11 +253,6 @@ class GPU_cufinufft_transformer:
                     self.tim.add('polrot (fortran)')
         # Return real array of shape (2, npix) for spin > 0
         return (values.real, ptg, map_dfs) if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
-
-
-    def gclm2lenmap(self, args, kwargs):
-        # TODO cheap name mapping until proper naming convention is established
-        return self.synthesis_general(*args, **kwargs)
 
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], spin:int, lmax:int, mmax:int, gclm_out=None, sht_mode='STANDARD'):
@@ -419,10 +430,6 @@ class GPU_cufinufft_transformer:
         self.tim.add('adjoint_synthesis_2d (%s)'%mode)
         self.tim.close('lenmap2gclm')
         return slm.squeeze()
-
-
-    def synthesis(self, dlm, spin, lmax, mmax, nthreads, mode='STANDARD'):
-        return self.sht_transformer.synthesis(dlm, spin=spin, lmax=lmax, mmax=mmax, nthreads=nthreads, mode=mode)
 
 
     def hashdict():
