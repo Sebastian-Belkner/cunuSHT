@@ -8,10 +8,7 @@ from lenspyx import cachers
 
 def st2mmax(spin, tht, lmax):
     r"""Converts spin, tht and lmax to a maximum effective m, according to libsharp paper polar optimization formula Eqs. 7-8
-
         For a given mmax, one needs then in principle 2 * mmax + 1 longitude points for exact FFT's
-
-
     """
     T = max(0.01 * lmax, 100)
     b = - 2 * spin * np.cos(tht)
@@ -21,10 +18,8 @@ def st2mmax(spin, tht, lmax):
 
 def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048})):
     r"""Returns sphere pixelization geometry instance from name and arguments
-
         Note:
             Custom geometries can be defined following lenspyx.remapping.utils_geom.Geom
-
     """
     geo = getattr(Geom, '_'.join(['get', geometry[0], 'geometry']), None)
     if geo is None:

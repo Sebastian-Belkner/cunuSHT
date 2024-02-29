@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 from pysht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
-from pysht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_DUCC_transformer
+from pysht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_Lenspyx_transformer
 
 from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
 from pysht.sht.GPU_sht_transformer import GPU_SHTns_transformer
@@ -23,7 +23,7 @@ class CPU_nuFFT_Transformer:
         if solver in ['duccnufft']:
             return CPU_DUCCnufft_transformer#(shttransformer_desc='ducc')
         elif solver in ['ducc']:
-            return CPU_DUCC_transformer#(shttransformer_desc='ducc')
+            return CPU_Lenspyx_transformer#(shttransformer_desc='ducc')
         elif solver in ['finufft']:
             return CPU_finufft_transformer#(shttransformer_desc='ducc')
         else:
@@ -95,12 +95,3 @@ def _(solver, transformer): # pylint: disable=missing-function-docstring
 @transform.case(str, GPU_nuFFT_Transformer)
 def _(solver, transformer): # pylint: disable=missing-function-docstring
     return transformer.build(solver)
-
-
-# @transform3d.case(str, str, CPU_Transformer)
-# def _(solver, transformer): # pylint: disable=missing-function-docstring
-#     return transformer.build(solver)
-
-# @transform3d.case(str, str, GPU_Transformer)
-# def _(solver, transformer): # pylint: disable=missing-function-docstring
-#     return transformer.build(solver)

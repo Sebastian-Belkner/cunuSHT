@@ -593,64 +593,20 @@ class CPU_DUCCnufft_transformer(deflection):
         assert 0, "implement if needed"
         return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.sht_tr, mode=sht_mode, alm=alm, verbose=self.verbosity)
 
-# TODO this could just be lenspyx, then becomes LENSPYX_transformer?
-class CPU_DUCC_transformer(deflection):
+class CPU_Lenspyx_transformer:
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
-        assert 0, "implement if needed"
-        self.backend = 'CPU'
-
-        if shttransformer_desc == 'ducc':
-            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        elif shttransformer_desc == 'shtns':
-            self.BaseClass = type('CPU_SHT_SHTns_transformer()', (CPU_SHT_SHTns_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        else:
-            raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
-
-    def __getattr__(self, name):
-        return getattr(self.instance, name)
-
+        # FIXME propagate mmax
+        self.lenspyx = deflection(geominfo, np.zeros(shape=hp.Alm.getsize(geominfo[1]['lmax'],geominfo[1]['lmax'])), geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['vebosity'], epsilon=deflection_kwargs['epsilon'])
 
     def gclm2lenmap(self, gclm:np.ndarray, dlm, mmax:int or None, spin:int, backwards:bool, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
-        """Produces deflected spin-weighted map from alm array and instance pointing information
-            Args:
-                gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
-                mmax: mmax parameter of alm array layout, if different from lmax
-                spin: spin (>=0) of the transform
-                backwards: forward or backward (adjoint) operation
-        """
-        # init deflection via Geom init
-        # gclm2lenmap
-        if dclm is not None:
-            assert 0, "Implement if needed"
-            # s2_d += np.sum(alm2cl(dclm, dclm, lmax, mmax_dlm, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
-            # s2_d /= np.sqrt(2.)
-        def _get_ptg():
-            # TODO improve this and fwd angles, e.g. this is computed twice for gamma if no cacher
-            self._build_angles(dlm, mmax, mmax) if not self._cis else self._build_angleseig()
-            return self.cacher.load('ptg')
+        return self.lenspyx.gclm2lenmap()
 
-        self.single_prec = single_prec * (epsilon > 1e-6)
-        assert not backwards, 'backward 2lenmap not implemented at this moment'
-        if self.single_prec and gclm.dtype != np.complex64:
-            print('** gclm2lenmap: inconsistent input dtype !')
-            gclm = gclm.astype(np.complex64)
-        gclm = np.atleast_2d(gclm)
-        sht_mode = ducc_sht_mode(gclm, spin)
-        lmax_unl = Alm.getlmax(gclm[0].size, mmax)
-        if mmax is None:
-            mmax = lmax_unl
-        if ptg is None:
-            ptg = _get_ptg()
-        assert ptg.shape[-1] == 2, ptg.shape
-        assert ptg.dtype == np.float64, 'synthesis_general only accepts float here'
-        if spin == 0:
-            values = ducc_synthesis_general(lmax=lmax_unl, mmax=mmax, alm=gclm, loc=ptg, spin=spin, epsilon=epsilon,
-                                    nthreads=nthreads, mode=sht_mode, verbose=self.verbosity)
-            return values
-
-
+    def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
+        return self.lenspyx.lenmap2gclm()
+    
+    def lensgclm(self, gclm:np.ndarray, dlm:np.array, spin:int, lmax_out:int, nthreads:int, mmax:int=None, mmax_out:int=None,gclm_out:np.ndarray=None, polrot=True, out_sht_mode='STANDARD'):
+        return self.lenspyx.lenmap2gclm()
+   
     def synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"
         return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.sht_tr, mode=sht_mode, verbose=self.verbosity)
