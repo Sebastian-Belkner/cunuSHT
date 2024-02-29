@@ -204,7 +204,7 @@ class GPU_cufinufft_transformer(deflection):
 
 
     def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
-        """CPU algorithm for spin-n remapping using finufft
+        """GPU algorithm for spin-n remapping using cufinufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
                 mmax: mmax parameter of alm array layout, if different from lmax
@@ -226,9 +226,13 @@ class GPU_cufinufft_transformer(deflection):
         nphi = 2 * nphihalf
         # Is this any different to scarf wraps ? NB: type of map, map_df, and FFTs will follow that of input gclm
         mode = ducc_sht_mode(gclm, spin)
+        
+        # TODO is there a 2d FFT synthesis in SHTns?
         map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi,
                                 spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
         # extend map to double Fourier sphere map
+        
+        # TODO is this expensive so that we better do this on a GPU?
         map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
         if spin == 0:
             map_dfs[:ntheta, :] = map[0]
@@ -243,6 +247,7 @@ class GPU_cufinufft_transformer(deflection):
             map_dfs[ntheta:, :] *= -1
 
         # go to Fourier space
+        # TODO is there a c2c FFT in SHTns?
         if spin == 0:
             tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
             map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
@@ -259,6 +264,7 @@ class GPU_cufinufft_transformer(deflection):
             ptg = None
             if ptg is None:
                 # FIXME stop passing synthesis function as _get_d1 needs it..
+                # TODO is this expensive? Can we port this to GPU?
                 ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
             self.tim.add('get ptg')
 
@@ -281,9 +287,8 @@ class GPU_cufinufft_transformer(deflection):
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, self.nthreads)
                     self.tim.add('polrot (fortran)')
-        # Return real array of shape (2, npix) for spin > 0
+    
         return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
-        # np.atleast_2d(values.real.flatten())
 
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
