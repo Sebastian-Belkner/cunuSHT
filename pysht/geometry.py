@@ -6,8 +6,20 @@ from ducc0.fft import good_size
 
 from lenspyx import cachers
 
+def st2mmax(spin, tht, lmax):
+    r"""Converts spin, tht and lmax to a maximum effective m, according to libsharp paper polar optimization formula Eqs. 7-8
 
-def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CPU'):
+        For a given mmax, one needs then in principle 2 * mmax + 1 longitude points for exact FFT's
+
+
+    """
+    T = max(0.01 * lmax, 100)
+    b = - 2 * spin * np.cos(tht)
+    c = -(T + lmax * np.sin(tht)) ** 2 + spin ** 2
+    mmax = 0.5 * (- b + np.sqrt(b * b - 4 * c))
+    return mmax
+
+def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048})):
     r"""Returns sphere pixelization geometry instance from name and arguments
 
         Note:
@@ -17,7 +29,7 @@ def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CP
     geo = getattr(Geom, '_'.join(['get', geometry[0], 'geometry']), None)
     if geo is None:
         assert 0, 'Geometry %s not found, available geometries: '%geometry[0] + Geom.get_supported_geometries()
-    return geo(**geometry[1], backend=backend)
+    return geo(**geometry[1])
 
 class Geom:
     def __init__(self,
@@ -181,7 +193,7 @@ class Geom:
             print('no supported geometry found')
 
     @staticmethod
-    def get_thingauss_geometry(lmax:int, smax:int, good_size_real=True, backend='CPU'):
+    def get_thingauss_geometry(lmax:int, smax:int, good_size_real=True):
         """Longitude-thinned Gauss-Legendre pixelization
 
             Args:
@@ -203,7 +215,7 @@ class Geom:
         return Geom(tht, phi0, nph, ofs, wt / nph)
 
     @staticmethod
-    def get_healpix_geometry(nside:int, backend='CPU'):
+    def get_healpix_geometry(nside:int):
         """Healpix pixelization
 
             Args:
@@ -212,10 +224,10 @@ class Geom:
         base = ducc0.healpix.Healpix_Base(nside, "RING")
         geom = base.sht_info()
         area = (4 * np.pi) / (12 * nside ** 2)
-        return Geom(w=np.full((geom['theta'].size, ), area), **geom, backend=backend)
+        return Geom(w=np.full((geom['theta'].size, ), area), **geom)
 
     @staticmethod
-    def get_cc_geometry(ntheta:int, nphi:int, backend='CPU'):
+    def get_cc_geometry(ntheta:int, nphi:int):
         """Clenshaw-Curtis pixelization
 
             Uniformly-spaced in latitude, one point on each pole
@@ -231,10 +243,10 @@ class Geom:
         nph = np.full((ntheta,), nphi, dtype=np.uint64)
         ofs = np.insert(np.cumsum(nph[:-1]), 0, 0)
         w = ducc0.sht.experimental.get_gridweights('CC', ntheta)
-        return Geom(tht, phi0, nph, ofs, w / nphi, backend=backend)
+        return Geom(tht, phi0, nph, ofs, w / nphi)
 
     @staticmethod
-    def get_f1_geometry(ntheta:int, nphi:int, backend='CPU'):
+    def get_f1_geometry(ntheta:int, nphi:int):
         """Fejer-1 pixelization
 
             Uniformly-spaced in latitude, first and last point pi / 2N away from the poles
@@ -250,10 +262,10 @@ class Geom:
         nph = np.full((ntheta,), nphi, dtype=np.uint64)
         ofs = np.insert(np.cumsum(nph[:-1]), 0, 0)
         w = ducc0.sht.experimental.get_gridweights('F1', ntheta)
-        return Geom(tht, phi0, nph, ofs, w / nphi, backend=backend)
+        return Geom(tht, phi0, nph, ofs, w / nphi)
 
     @staticmethod
-    def get_gl_geometry(lmax:int, good_size_real=True, nphi:int=None, backend='CPU'):
+    def get_gl_geometry(lmax:int, good_size_real=True, nphi:int=None):
         """Gauss-Legendre pixelization
 
             Args:
@@ -270,10 +282,10 @@ class Geom:
         phi0 = np.zeros(nlatf, dtype=float)
         nph = np.full((nlatf,), nphi, dtype=np.uint64)
         ofs = np.insert(np.cumsum(nph[:-1]), 0, 0)
-        return Geom(tht, phi0, nph, ofs, wt / nph , backend=backend)
+        return Geom(tht, phi0, nph, ofs, wt / nph )
 
     @staticmethod
-    def get_tgl_geometry(lmax:int, smax:int, good_size_real=True, backend='CPU'):
+    def get_tgl_geometry(lmax:int, smax:int, good_size_real=True):
         """Longitude-thinned Gauss-Legendre pixelization
 
             Args:
@@ -283,7 +295,7 @@ class Geom:
                                           (very slightly more points if set but largely inconsequential)
 
         """
-        return Geom.get_thingauss_geometry(lmax, smax, good_size_real=good_size_real, backen=backend)
+        return Geom.get_thingauss_geometry(lmax, smax, good_size_real=good_size_real)
 
 
 class pbounds:

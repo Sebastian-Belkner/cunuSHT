@@ -11,8 +11,7 @@ import pysht.geometry as geometry
 
 class CPU_SHT_DUCC_transformer():
     def __init__(self, geom=None):
-        pass
-        # self.geom = geometry.get_geom(geom)
+        self.geom = geometry.get_geom(geom)
 
 
     def set_geometry(self, geom_desc):
@@ -45,8 +44,10 @@ class CPU_SHT_DUCC_transformer():
                 m[:, of:of + npi] *= w
         if alm is not None:
             assert alm.shape[-1] == utils_hp.Alm.getsize(lmax, mmax)
+        # print("map={map}, theta={theta}, nphi={nphi}, phi0={phi0}, nthreads={nthreads}, ringstart={ringstart}, alm={alm}".format(map=m.shape, theta=self.geom.theta.shape, nphi=self.geom.nph.shape, phi0=self.geom.phi0.shape,
+                                #  nthreads=nthreads, ringstart=self.geom.ofs, alm=alm) )
         return ducc_adjoint_synthesis(map=m, theta=self.geom.theta, lmax=lmax, mmax=mmax, nphi=self.geom.nph, spin=spin, phi0=self.geom.phi0,
-                                 nthreads=nthreads, ringstart=self.geom.ofs, alm=alm,  **kwargs)
+                                 nthreads=nthreads, alm=alm, ringstart=self.geom.ofs, **kwargs)
         
     def alm2map_spin(self, gclm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, zbounds=(-1., 1.), **kwargs):
         # FIXME: method only here for backwards compatiblity
@@ -69,16 +70,17 @@ class CPU_SHT_DUCC_transformer():
         return self.adjoint_synthesis(m.copy(), 0, lmax, mmax, nthreads, **kwargs).squeeze()
 
 class CPU_SHT_SHTns_transformer():
-    def __init__(self):
-        pass
-        # self.geom = geometry.get_geom(geom_desc)
+    def __init__(self, geominfo):
+        self.geom = geometry.get_geom(geominfo)
+        self.set_geometry(geominfo)
 
 
     def set_geometry(self, geominfo):
         # TODO set_geometry is more a constructor + set_grid in shtns
         # self.geom = geometry.get_geom(geom_desc)
-        self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
+        self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
         self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS)
+        self.geom = geometry.get_geom(geominfo)
         
         
     def set_constructor(self, lmax, mmax):
@@ -87,13 +89,34 @@ class CPU_SHT_SHTns_transformer():
         self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS)
 
 
-    def synthesis(self, gclm: np.ndarray, **kwargs):
+    def synthesis(self, gclm: np.ndarray, spin, lmax, mmax, mode=None, nthreads=None):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-
         gclm = np.atleast_2d(gclm)
-        return self.constructor.synth(gclm)
+        return np.atleast_2d(self.constructor.synth(gclm).flatten())
+
+
+    def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
+        """Wrapper to SHTns forward SHT
+            Return a map or a pair of map for spin non-zero, with the same type as gclm
+        """
+        if len(np.shape(map)) == 1:
+            map = map.reshape(len(self.geom.nph),-1)            
+        return np.atleast_2d(self.constructor.analys(map).flatten())
+    
+
+    def adjoint_synthesis(self, map: np.ndarray, **kwargs):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
+        """Wrapper to SHTns forward SHT
+            Return a map or a pair of map for spin non-zero, with the same type as gclm
+        """
+        return self.analysis(map, **kwargs)
 
     def alm2map_spin(self, gclm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, zbounds=(-1., 1.), **kwargs):
         # FIXME: method only here for backwards compatiblity

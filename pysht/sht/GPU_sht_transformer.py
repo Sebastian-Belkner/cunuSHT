@@ -6,22 +6,15 @@ import pysht.geometry as geometry
 
 class GPU_SHTns_transformer():
     
-    def __init__(self):
-        pass
+    def __init__(self, geominfo):
+        self.geom = geometry.get_geom(geominfo)
+        self.set_geometry(geominfo)
 
 
     def set_geometry(self, geominfo):
-        #TODO perhaps namechange: set_geometry is more a constructor + set_grid in shtns
-        #TODO get geom from SHTns
-        if 'mmax' in geominfo[1]:
-            del geominfo[1]['mmax']
         self.geom = geometry.get_geom(geominfo)
-        import copy
-        self.geominfo = copy.deepcopy(geominfo)
-        #TODO add mmax to geominfo at userlevel
-        if 'mmax' not in geominfo[1]:
-            geominfo[1].update({'mmax': int(geominfo[1]['lmax'])})
-        self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
+        #FIXME mmax is lmax
+        self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
         self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
 
         
@@ -41,21 +34,30 @@ class GPU_SHTns_transformer():
         return np.atleast_2d(self.constructor.synth(gclm).flatten())
 
 
-    def analysis(self, gclm: np.ndarray, spin, lmax, mmax, mode=None, nthreads=None):
+    def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        return np.atleast_2d(self.constructor.analys(alm=gclm).flatten())
+        return np.atleast_2d(self.constructor.analys(map).flatten())
+
+
+    def adjoint_synthesis(self, map: np.ndarray, **kwargs):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
+        """Wrapper to SHTns forward SHT
+            Return a map or a pair of map for spin non-zero, with the same type as gclm
+        """
+        return self.analysis(map, **kwargs)
 
 
     def map2alm(self, m: np.ndarray, **kwargs):
-        return self.synthesis(m, **kwargs)
+        return self.analysis(m, **kwargs)
     
     
     def alm2map(self, gclm: np.ndarray, **kwargs):
-        return self.analysis(gclm, **kwargs)
+        return self.synthesis(gclm, **kwargs)
 
 
 class GPU_SHT_pySHT_transformer():
@@ -63,8 +65,8 @@ class GPU_SHT_pySHT_transformer():
     GPU_SHT_pySHT_transformer class for performing spherical harmonic transformations using pySHT library.
     This will be the self-implemented spin-n SHT transforms. 
     """
-    def __init__(self, geom_desc=None):
-        pass
+    def __init__(self, geominfo):
+        self.geom = geometry.get_geom(geominfo)
 
 
     def set_geometry(self, geominfo):

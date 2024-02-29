@@ -12,34 +12,34 @@ from pysht.geometry import Geom
 class CPU_SHT_Transformer:
     def build(self, solver):
         if solver in ['shtns']:
-            return CPU_SHT_SHTns_transformer()
+            return CPU_SHT_SHTns_transformer
         elif solver in ['ducc']:
-            return CPU_SHT_DUCC_transformer()
+            return CPU_SHT_DUCC_transformer
         else:
             assert 0, "Solver not found"
         
 class CPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['duccnufft']:
-            return CPU_DUCCnufft_transformer(shttransformer_desc='ducc')
+            return CPU_DUCCnufft_transformer#(shttransformer_desc='ducc')
         elif solver in ['ducc']:
-            return CPU_DUCC_transformer(shttransformer_desc='ducc')
+            return CPU_DUCC_transformer#(shttransformer_desc='ducc')
         elif solver in ['finufft']:
-            return CPU_finufft_transformer(shttransformer_desc='ducc')
+            return CPU_finufft_transformer#(shttransformer_desc='ducc')
         else:
             assert 0, "Solver not found"
 
 class GPU_SHT_Transformer:
     def build(self, solver):
         if solver in ['shtns']:
-            return GPU_SHTns_transformer()
+            return GPU_SHTns_transformer
         else:
             assert 0, "Solver not found"
         
 class GPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['cufinufft']:
-            return GPU_cufinufft_transformer(shttransformer_desc='shtns')
+            return GPU_cufinufft_transformer#(shttransformer_desc='shtns')
         else:
             assert 0, "Solver not found"
 
