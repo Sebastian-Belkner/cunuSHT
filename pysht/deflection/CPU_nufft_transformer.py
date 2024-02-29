@@ -1,5 +1,8 @@
 import numpy as np
 
+import healpy as hp
+
+from lenspyx.remapping import deflection as lenspyx_deflection
 from lenspyx.utils_hp import Alm
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.utils import timer, blm_gauss
@@ -8,6 +11,8 @@ from lenspyx import cachers
 
 import ducc0
 import finufft
+
+from lenspyx.lensing import get_geom as lenspyx_get_geom
 
 import pysht.geometry as geometry
 from pysht.geometry import Geom
@@ -118,7 +123,7 @@ class deflection:
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
-                print("theta=", tht, "phi0=", phi0, "nphi=", nph, "ringstart=", ofs, "deflect=", d1.T, "calc_rotation=", calc_rotation, "nthreads=", self.nthreads)
+                # print("theta=", tht, "phi0=", phi0, "nphi=", nph, "ringstart=", ofs, "deflect=", d1.T, "calc_rotation=", calc_rotation, "nthreads=", self.nthreads)
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
                                                         calc_rotation=calc_rotation, nthreads=self.nthreads)
                 if calc_rotation:
@@ -126,7 +131,7 @@ class deflection:
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
                 else:
                     self.cacher.cache(fns[0], tht_phip_gamma)
-                print('build_angles')
+                # print('build_angles')
                 return
             npix = self.npix
             if fortran and HAS_FORTRAN:
@@ -136,7 +141,7 @@ class deflection:
                     thp_phip_gamma = fremap.fpointing(red, imd, tht, phi0, nph, ofs, nthreads)
                 else:
                     thp_phip_gamma = fremap.pointing(red, imd, tht, phi0, nph, ofs, nthreads)
-                print('build angles <- th-phi-gm (ftn)')
+                # print('build angles <- th-phi-gm (ftn)')
                 # I think this just trivially turns the F-array into a C-contiguous array:
                 self.cacher.cache(fns[0], thp_phip_gamma.transpose()[:, 0:2])
                 if calc_rotation:
@@ -250,8 +255,8 @@ class CPU_finufft_transformer(deflection):
 
         # go to Fourier space
         if spin == 0:
-            tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
-            map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
+            tmp = np.empty(map_dfs.shape, dtype=np.complex128)
+            map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
             del tmp
         else:
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
@@ -269,7 +274,7 @@ class CPU_finufft_transformer(deflection):
             self.tim.add('get ptg')
 
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
-            v_ = finufft.nufft2d2(x=ptg[:,1], y=ptg[:,0], f=map_shifted.T.astype(np.complex128))
+            v_ = finufft.nufft2d2(x=ptg[:,1][::-1], y=ptg[:,0], f=map_shifted.T.astype(np.complex128))
             values = np.roll(np.real(v_).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
             self.tim.add('u2nu')
 
@@ -457,13 +462,8 @@ class CPU_DUCCnufft_transformer(deflection):
 
         # go to Fourier space
         if spin == 0:
-            # _ = map_dfs.copy()
             tmp = np.empty(map_dfs.shape, dtype=ctype[map_dfs.dtype])
             map_dfs = ducc0.fft.c2c(map_dfs.copy(), axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
-            
-            # tmp_ = np.empty(map_dfs.T.shape, dtype=np.complex128)
-            # print(_.shape, _)
-            # map_dfs_return = ducc0.fft.c2c(_.T, axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp_)
             del tmp
         else:
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
@@ -478,12 +478,10 @@ class CPU_DUCCnufft_transformer(deflection):
             if ptg is None:
                 ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
             self.tim.add('get ptg')
-            values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=True,
-                                        epsilon=self.epsilon, nthreads=nthreads,
-                                        verbosity=self.verbosity, periodicity=2 * np.pi, fft_order=True)
+            values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=True, epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
             self.tim.add('u2nu')
-            # return(map_dfs)
 
+        # TODO check if pixels match location
         if polrot * spin:
             if self._cis:
                 cis = self._get_cischi()
@@ -498,8 +496,7 @@ class CPU_DUCCnufft_transformer(deflection):
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, nthreads)
                     self.tim.add('polrot (fortran)')
-        # Return real array of shape (2, npix) for spin > 0
-        return values.real if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
+        return np.roll(values.reshape(lmax+1,-1)[:,::-1],int(self.geom.nph[0]/2-1), axis=1).flatten().real if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
@@ -596,16 +593,18 @@ class CPU_DUCCnufft_transformer(deflection):
 class CPU_Lenspyx_transformer:
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         # FIXME propagate mmax
-        self.lenspyx = deflection(geominfo, np.zeros(shape=hp.Alm.getsize(geominfo[1]['lmax'],geominfo[1]['lmax'])), geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['vebosity'], epsilon=deflection_kwargs['epsilon'])
-
-    def gclm2lenmap(self, gclm:np.ndarray, dlm, mmax:int or None, spin:int, backwards:bool, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
-        return self.lenspyx.gclm2lenmap()
+        self.lenspyx = lenspyx_deflection(lenspyx_get_geom(geominfo), np.zeros(shape=hp.Alm.getsize(geominfo[1]['lmax'],geominfo[1]['lmax'])), geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'])
+        self.lenspyx = self.lenspyx.change_dlm([deflection_kwargs['dlm'],None], mmax_dlm=deflection_kwargs['mmax_dlm'])
+        
+    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
+        # FIXME check incoming lmax/mmax passing, and nthreads
+        return self.lenspyx.gclm2lenmap(gclm=gclm, backwards=backwards, mmax=mmax, spin=spin)
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
-        return self.lenspyx.lenmap2gclm()
+        return self.lenspyx.lenmap2gclm(np.atleast_2d(points), spin, lmax, mmax)
     
     def lensgclm(self, gclm:np.ndarray, dlm:np.array, spin:int, lmax_out:int, nthreads:int, mmax:int=None, mmax_out:int=None,gclm_out:np.ndarray=None, polrot=True, out_sht_mode='STANDARD'):
-        return self.lenspyx.lenmap2gclm()
+        return self.lenspyx.lensgclm(gclm=gclm, mmax=mmax, spin=spin, lmax_out=lmax_out, mmax_out=mmax_out)
    
     def synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"

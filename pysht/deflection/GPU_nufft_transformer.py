@@ -50,11 +50,11 @@ def ducc_sht_mode(gclm, spin):
 
 
 class deflection:
-    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-5, verbosity=0, single_prec=True, planned=False):
+    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-5, verbosity=0, single_prec=True, planned=False, nthreads=4):
         self.single_prec = True
         self.verbosity = 1
         self.tim = timer(verbose=self.verbosity)
-        self.sht_tr = 4
+        self.nthreads = nthreads
         self.planned = False
         self._cis = False
         self.cacher = cachers.cacher_mem()
@@ -81,13 +81,13 @@ class deflection:
     def _build_d1(self, dlm, lmax_dlm, mmax_dlm, synthesis, dclm=None):
         if dclm is None:
             # undo p2d to use
-            d1 = synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr, mode='GRAD_ONLY')
+            d1 = synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads, mode='GRAD_ONLY')
         else:
             # FIXME: want to do that only once
             dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
             dgclm[0] = dlm
             dgclm[1] = dclm
-            d1 = synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.sht_tr)
+            d1 = synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads)
         return np.atleast_2d(d1)
 
 
@@ -118,7 +118,7 @@ class deflection:
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
-                                                        calc_rotation=calc_rotation, nthreads=self.sht_tr)
+                                                        calc_rotation=calc_rotation, nthreads=self.nthreads)
                 if calc_rotation:
                     self.cacher.cache(fns[0], tht_phip_gamma[:, 0:2])
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
@@ -245,10 +245,10 @@ class GPU_cufinufft_transformer(deflection):
         # go to Fourier space
         if spin == 0:
             tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
-            map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=tmp)
+            map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
             del tmp
         else:
-            map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.sht_tr, out=map_dfs)
+            map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=map_dfs)
 
         if self.planned: # planned nufft
             assert ptg is None
@@ -263,7 +263,7 @@ class GPU_cufinufft_transformer(deflection):
             self.tim.add('get ptg')
 
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
-            v_ = cufinufft.nufft2d2(x=cp.array(ptg[:,1]), y=cp.array(ptg[:,0]), data=cp.array(map_shifted.astype(np.complex128)))
+            v_ = cufinufft.nufft2d2(x=cp.array(ptg[:,1][::-1]), y=cp.array(ptg[:,0]), data=cp.array(map_shifted.astype(np.complex128)))
             values = np.roll(np.real(v_.get()).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
             self.tim.add('u2nu')
 
@@ -275,11 +275,11 @@ class GPU_cufinufft_transformer(deflection):
                 self.tim.add('polrot (cis)')
             else:
                 if HAS_DUCCROTATE:
-                    lensing_rotate(values, self._get_gamma(), spin, self.sht_tr)
+                    lensing_rotate(values, self._get_gamma(), spin, self.nthreads)
                     self.tim.add('polrot (ducc)')
                 else:
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
-                    func(values, self._get_gamma(), spin, self.sht_tr)
+                    func(values, self._get_gamma(), spin, self.nthreads)
                     self.tim.add('polrot (fortran)')
         # Return real array of shape (2, npix) for spin > 0
         return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
@@ -333,7 +333,7 @@ class GPU_cufinufft_transformer(deflection):
         del map_dfs
 
         # adjoint SHT synthesis
-        slm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.sht_tr, mode=sht_mode, alm=gclm_out)
+        slm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=sht_mode, alm=gclm_out)
         return slm.squeeze()
     
 
@@ -368,11 +368,11 @@ class GPU_cufinufft_transformer(deflection):
         
     def synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"
-        return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.sht_tr, mode=sht_mode, verbose=self.verbosity)
+        return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, verbose=self.verbosity)
     
     def adjoint_synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"
-        return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.sht_tr, mode=sht_mode, alm=alm, verbose=self.verbosity)
+        return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, alm=alm, verbose=self.verbosity)
 
 
     def hashdict():

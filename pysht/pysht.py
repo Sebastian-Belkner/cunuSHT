@@ -22,7 +22,7 @@ class CPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['duccnufft']:
             return CPU_DUCCnufft_transformer#(shttransformer_desc='ducc')
-        elif solver in ['ducc']:
+        elif solver in ['lenspyx']:
             return CPU_Lenspyx_transformer#(shttransformer_desc='ducc')
         elif solver in ['finufft']:
             return CPU_finufft_transformer#(shttransformer_desc='ducc')
