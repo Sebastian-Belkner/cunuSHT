@@ -94,6 +94,7 @@ class deflection:
             dgclm[0] = dlm
             dgclm[1] = dclm
             d1 = synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads)
+        print(d1, d1[0].shape)
         return d1
 
 
@@ -106,19 +107,8 @@ class deflection:
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
             #TODO need spin-1 synthesis here (not currently supported by shtns). remove ducc_transformer once its implemented
-            ducc_transformer = CPU_DUCCnufft_transformer(
-                shttransformer_desc='ducc',
-                geominfo=self.geominfo,
-                deflection_kwargs={'dlm':dlm,
-                'mmax_dlm': self.mmax_dlm,
-                'epsilon':self.epsilon,
-                'verbosity':self.verbosity,
-                'single_prec':self.single_prec,
-                'planned':self.planned})
-            ducc_transformer.set_geometry(self.geominfo)
-            # FIXME for GPU, overwriting synthesis call anyway
-            synthesis = ducc_transformer.synthesis
-            d1 = ducc_transformer._build_d1(dlm, lmax_dlm, mmax_dlm, synthesis)
+
+            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, synthesis)
             # d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, synthesis)
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
@@ -186,7 +176,7 @@ class deflection:
 class CPU_finufft_transformer(deflection):
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         self.backend = 'CPU'
- 
+        print("shttransformer_desc "+ shttransformer_desc)
         if shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
             self.instance = self.BaseClass(geominfo)
@@ -593,15 +583,17 @@ class CPU_DUCCnufft_transformer(deflection):
 class CPU_Lenspyx_transformer:
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         # FIXME propagate mmax
-        self.lenspyx = lenspyx_deflection(lenspyx_get_geom(geominfo), np.zeros(shape=hp.Alm.getsize(geominfo[1]['lmax'],geominfo[1]['lmax'])), geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'])
-        self.lenspyx = self.lenspyx.change_dlm([deflection_kwargs['dlm'],None], mmax_dlm=deflection_kwargs['mmax_dlm'])
+        self.lenspyx = lenspyx_deflection(lenspyx_get_geom(geominfo), deflection_kwargs['dlm'], geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'], single_prec=deflection_kwargs['single_prec'])
+        # self.lenspyx = self.lenspyx.change_dlm([deflection_kwargs['dlm'], None], mmax_dlm=deflection_kwargs['mmax_dlm'])
+        print(self.lenspyx.__dict__)
         
     def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
         # FIXME check incoming lmax/mmax passing, and nthreads
         return self.lenspyx.gclm2lenmap(gclm=gclm, backwards=backwards, mmax=mmax, spin=spin)
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
-        return self.lenspyx.lenmap2gclm(np.atleast_2d(points), spin, lmax, mmax)
+        print("geom name: {}".format(self.lenspyx.geom.name))
+        return self.lenspyx.lenmap2gclm(points=np.atleast_2d(points), spin=spin, lmax=lmax, mmax=mmax, gclm_out=gclm_out, sht_mode=sht_mode)
     
     def lensgclm(self, gclm:np.ndarray, dlm:np.array, spin:int, lmax_out:int, nthreads:int, mmax:int=None, mmax_out:int=None,gclm_out:np.ndarray=None, polrot=True, out_sht_mode='STANDARD'):
         return self.lenspyx.lensgclm(gclm=gclm, mmax=mmax, spin=spin, lmax_out=lmax_out, mmax_out=mmax_out)

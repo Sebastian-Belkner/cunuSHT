@@ -16,7 +16,7 @@ class CPU_SHT_Transformer:
         elif solver in ['ducc']:
             return CPU_SHT_DUCC_transformer
         else:
-            assert 0, "Solver not found"
+            assert 0, "Solver not found: {}".format(solver)
         
 class CPU_nuFFT_Transformer:
     def build(self, solver):
@@ -27,24 +27,24 @@ class CPU_nuFFT_Transformer:
         elif solver in ['finufft']:
             return CPU_finufft_transformer#(shttransformer_desc='ducc')
         else:
-            assert 0, "Solver not found"
+            assert 0, "Solver not found: {}".format(solver)
 
 class GPU_SHT_Transformer:
     def build(self, solver):
         if solver in ['shtns']:
             return GPU_SHTns_transformer
         else:
-            assert 0, "Solver not found"
+            assert 0, "Solver not found: {}".format(solver)
         
 class GPU_nuFFT_Transformer:
     def build(self, solver):
         if solver in ['cufinufft']:
             return GPU_cufinufft_transformer#(shttransformer_desc='shtns')
         else:
-            assert 0, "Solver not found"
+            assert 0, "Solver not found: {}".format(solver)
 
 
-def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CPU'):
+def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048})):
     r"""Returns sphere pixelization geometry instance from name and arguments
 
         Note:
@@ -54,7 +54,7 @@ def get_geom(geometry: tuple[str, dict]=('healpix', {'nside':2048}), backend='CP
     geo = getattr(Geom, '_'.join(['get', geometry[0], 'geometry']), None)
     if geo is None:
         assert 0, 'Geometry %s not found, available geometries: '%geometry[0] + Geom.get_supported_geometries()
-    return geo(**geometry[1], backend=backend)
+    return geo(**geometry[1])
 
 
 def set_transformer(transf):

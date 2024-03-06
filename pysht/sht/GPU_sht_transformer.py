@@ -32,6 +32,16 @@ class GPU_SHTns_transformer():
         """
         gclm = np.atleast_2d(gclm)
         return np.atleast_2d(self.constructor.synth(gclm).flatten())
+    
+
+    def synthesis_der1(self, gclm: np.ndarray, nthreads=None):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
+        """Wrapper to SHTns forward SHT
+            Return a map or a pair of map for spin non-zero, with the same type as gclm
+        """
+        # gclm = np.atleast_2d(gclm)
+        return self.constructor.synth_grad(gclm)
 
 
     def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):

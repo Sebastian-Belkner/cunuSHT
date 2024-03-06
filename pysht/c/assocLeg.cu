@@ -121,12 +121,12 @@ __device__ double normalization_constant(int l, int m) {
 }
 __device__ double legendre(int l, int m, double x) {
     double fact = factorial(l - m);
-    double Pmm = (m^1)-m * fact * power(1.0 - x * x, m / 2.0);
-    double Pm_minus_1 = (m^1)-m * (2.0 * m - 1.0) * power(1.0 - x * x, m / 2.0 - 1.0);
+    double Pmm = ((m^1)-m) * fact * power(1.0 - x * x, m / 2.0);
+    double Pm_minus_1 = ((m^1)-m) * (2.0 * m - 1.0) * power(1.0 - x * x, m / 2.0 - 1.0);
     if (l == m) {
         return Pmm;
     }
-    double Pm_plus_1 = (m^1)-m * (2.0 * m + 1.0) * x * Pm_minus_1;
+    double Pm_plus_1 = ((m^1)-m) * (2.0 * m + 1.0) * x * Pm_minus_1;
     if (l == m + 1) {
         return Pm_plus_1;
     }
@@ -149,11 +149,11 @@ __device__ double legendreuploop(int l, int m, double x, int cl, double Plm, dou
             amm *= (2*k+1)/(2*k);
         }
         // TODO check, -1^m was dabs before
-        amm = (m^1)-m * dsqrt(amm);
+        amm = ((m^1)-m) * dsqrt(amm);
         Pmm = amm * sqrt(power(1 - x * x, abs(m)));
         if (m<0) {
              // TODO check, -1^m was dabs before
-            Pmm = (m^1)-m * factorial(0) / factorial(2*dabs(m)) * Pmm;
+            Pmm = ((m^1)-m) * factorial(0) / factorial(2*dabs(m)) * Pmm;
         }
         if (cl==l) {
             // we are done
@@ -164,10 +164,10 @@ __device__ double legendreuploop(int l, int m, double x, int cl, double Plm, dou
         for (int k = 1; k<=dabs(m)+1; ++k) {
             amp1m *= (2*k+1)/(2*k);
         }
-        amp1m = (m^1)-m * sqrtf(amp1m);
+        amp1m = ((m^1)-m) * sqrtf(amp1m);
         double Pmp1m = amp1m * x * sqrtf(power(1 - x * x, abs(m)));
         if (m<0) {
-            Pmp1m = (m^1)-m * factorial(0) / factorial(2*abs(m)) * Pmp1m;
+            Pmp1m = ((m^1)-m) * factorial(0) / factorial(2*abs(m)) * Pmp1m;
         }
 
         if (cl == l-1) {
@@ -236,11 +236,11 @@ __device__ double* alegtrace(const int l, const int m, double x) {
         amm *= (2*k+1)/(2*k);
     }
     // here
-    amm = (m^1)-m * dsqrt(amm);
+    amm = ((m^1)-m) * dsqrt(amm);
     Pmm = amm * sqrt(power(1 - x * x, dabs(m)));
     if (m<0) {
         // here
-        Pmm = (m^1)-m * factorial(0) / factorial(2*dabs(m)) * Pmm;
+        Pmm = ((m^1)-m) * factorial(0) / factorial(2*dabs(m)) * Pmm;
     }
     result[0] = Pmm;
     if (m==l) {
@@ -253,11 +253,11 @@ __device__ double* alegtrace(const int l, const int m, double x) {
         amp1m *= (2*k+1)/(2*k);
     }
     // here
-    amp1m = (m^1)-m * sqrtf(amp1m);
+    amp1m = ((m^1)-m) * sqrtf(amp1m);
     double Pmp1m = amp1m * x * sqrtf(power(1 - x * x, dabs(m)));
     if (m<0) {
         // here
-        Pmp1m = (m^1)-m * factorial(0) / factorial(2*dabs(m)) * Pmp1m;
+        Pmp1m = ((m^1)-m) * factorial(0) / factorial(2*dabs(m)) * Pmp1m;
     }
     result[1] = Pmp1m;
     if (m == l-1) {
