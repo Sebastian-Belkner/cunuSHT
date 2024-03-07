@@ -41,7 +41,9 @@ class GPU_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
-        return self.constructor.synth_grad(gclm)
+        buff = self.constructor.synth_grad(gclm)
+        ret = np.array([a.flatten() for a in buff])
+        return ret
 
 
     def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
@@ -59,6 +61,11 @@ class GPU_SHTns_transformer():
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
+        def check_dim():
+            if len(np.shape(map)) == 1:
+                return map.reshape(*self.constructor.spat_shape)
+            return map
+        map = check_dim()
         return self.analysis(map, **kwargs)
 
 

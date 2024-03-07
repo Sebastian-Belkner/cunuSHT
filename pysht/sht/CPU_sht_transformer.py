@@ -107,9 +107,7 @@ class CPU_SHT_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
-        lmax = hp.Alm.getlmax(len(gclm))
-        ll = np.arange(0, lmax+1, 1)
-        buff = self.constructor.synth_grad(hp.almxfl(gclm, np.sqrt(1/(ll*(ll+1)))))
+        buff = self.constructor.synth_grad(gclm)
         ret = np.array([a.flatten() for a in buff])
         return ret
 
@@ -121,7 +119,7 @@ class CPU_SHT_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         if len(np.shape(map)) == 1:
-            map = map.reshape(len(self.geom.nph),-1)  
+            map = map.reshape(*self.constructor.spat_shape)
         return np.atleast_2d(self.constructor.analys(map).flatten())
     
 

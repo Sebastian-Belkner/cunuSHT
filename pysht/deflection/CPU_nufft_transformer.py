@@ -82,23 +82,51 @@ class deflection:
     def set_nufftgeometry(self, geom_desc):
         self.nufftgeom = geometry.get_geom(geom_desc)
         self.set_geometry(geom_desc)
+        
+    def flip_tpg_2d(self, m):
+        # FIXME this should probably be lmax, not lmax_dlm
+        # dim of m supposedly (2, -1)
+        buff = np.array([_.reshape(2*(self.lmax_dlm+1),-1).T.flatten() for _ in m])
+        return buff
 
-
-    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, synthesis, dclm=None):
-        if dclm is None:
-            # undo p2d to use
-            d1 = synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads, mode='GRAD_ONLY')
+    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
+        '''
+        # FIXME this is a bit of a mess, this function should not distinguish between different SHT backends.
+        # Instead, there should be a _build_d1() for each, and they should sit in the repsective transformer modules.
+        
+        This depends on the backend. If SHTns, we can use the synthesis_der1 method. If not, we use a spin-1 SHT
+        '''
+        ll = np.arange(0,lmax_dlm+1,1)
+        if self.shttransformer_desc == 'shtns':
+            if dclm is None:
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+                
+            else:
+                assert 0, "implement if needed, not sure if this is possible with SHTns"
+                # FIXME: want to do that only once
+                dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
+                dgclm[0] = dlm
+                dgclm[1] = dclm
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+            return self.flip_tpg_2d(synth_spin1_map)
+        elif self.shttransformer_desc == 'ducc':
+            if dclm is None:
+                # undo p2d to use
+                d1 = self.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads, mode='GRAD_ONLY')
+            else:
+                # FIXME: want to do that only once
+                dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
+                dgclm[0] = dlm
+                dgclm[1] = dclm
+                d1 = self.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads)
+            return d1
+        elif self.shttransformer_desc == 'pysht':
+            assert 0, "implement if needed"
         else:
-            # FIXME: want to do that only once
-            dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
-            dgclm[0] = dlm
-            dgclm[1] = dclm
-            d1 = synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads)
-        print(d1, d1[0].shape)
-        return d1
+            assert 0, "Not sure what to do with {}".format(self.shttransformer_desc)
 
 
-    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, synthesis, fortran=True, calc_rotation=True):
+    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
 
             Returns (npix, 3) array with new tht, phi and -gamma
@@ -106,10 +134,7 @@ class deflection:
         """
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
-            #TODO need spin-1 synthesis here (not currently supported by shtns). remove ducc_transformer once its implemented
-
-            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, synthesis)
-            # d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, synthesis)
+            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
@@ -128,9 +153,9 @@ class deflection:
                 red, imd = d1
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 if self.single_prec_ptg:
-                    thp_phip_gamma = fremap.fpointing(red, imd, tht, phi0, nph, ofs, nthreads)
+                    thp_phip_gamma = fremap.fpointing(red, imd, tht, phi0, nph, ofs, self.nthreads)
                 else:
-                    thp_phip_gamma = fremap.pointing(red, imd, tht, phi0, nph, ofs, nthreads)
+                    thp_phip_gamma = fremap.pointing(red, imd, tht, phi0, nph, ofs, self.nthreads)
                 # print('build angles <- th-phi-gm (ftn)')
                 # I think this just trivially turns the F-array into a C-contiguous array:
                 self.cacher.cache(fns[0], thp_phip_gamma.transpose()[:, 0:2])
@@ -166,9 +191,9 @@ class deflection:
             return
 
 
-    def _get_ptg(self, dlm, mmax, geominfo, synthesis):
+    def _get_ptg(self, dlm, mmax):
         # TODO improve this and fwd angles, e.g. this is computed twice for gamma if no cacher
-        self._build_angles(dlm, mmax, mmax, synthesis) if not self._cis else self._build_angleseig()
+        self._build_angles(dlm, mmax, mmax) if not self._cis else self._build_angleseig()
         ptg = self.cacher.load('ptg')
         return ptg
 
@@ -176,7 +201,7 @@ class deflection:
 class CPU_finufft_transformer(deflection):
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         self.backend = 'CPU'
-        print("shttransformer_desc "+ shttransformer_desc)
+        self.shttransformer_desc = shttransformer_desc
         if shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
             self.instance = self.BaseClass(geominfo)
@@ -260,12 +285,16 @@ class CPU_finufft_transformer(deflection):
             ptg = None
             if ptg is None:
                 # FIXME stop passing synthesis function as _get_d1 needs it..
-                ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
+                ptg = self._get_ptg(dlm, mmax)
             self.tim.add('get ptg')
 
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
             v_ = finufft.nufft2d2(x=ptg[:,1][::-1], y=ptg[:,0], f=map_shifted.T.astype(np.complex128))
-            values = np.roll(np.real(v_).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
+            # FIXME ntheta and nphi are not the same for SHTns and ducc, SHTns.constructor gives the right shapes here.
+            if self.shttransformer_desc == 'sthns':
+                values = np.roll(np.real(v_).reshape(*self.geom.constructor.spat_shape).T, int(self.geom.nph[0]/2-1), axis=1)
+            else:
+                values = np.roll(np.real(v_).reshape(-1,self.geom.nph[0]), int(self.geom.nph[0]/2-1), axis=1)
             self.tim.add('u2nu')
 
         if polrot * spin:
@@ -299,7 +328,7 @@ class CPU_finufft_transformer(deflection):
         if spin > 0 and not np.iscomplexobj(points):
             points = (points[0] + 1j * points[1]).squeeze()
         # FIXME stop passing synthesis function as _get_d1 needs it..
-        ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
+        ptg = self._get_ptg(dlm, mmax)
 
 
         ntheta = ducc0.fft.good_size(lmax + 2)
@@ -377,6 +406,7 @@ class CPU_finufft_transformer(deflection):
 
 class CPU_DUCCnufft_transformer(deflection):
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
+        self.shttransformer_desc = shttransformer_desc
         if shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
             self.instance = self.BaseClass(geominfo)
@@ -466,7 +496,7 @@ class CPU_DUCCnufft_transformer(deflection):
         else:
             ptg = None
             if ptg is None:
-                ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
+                ptg = self._get_ptg(dlm, mmax)
             self.tim.add('get ptg')
             values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=True, epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
             self.tim.add('u2nu')
@@ -500,7 +530,7 @@ class CPU_DUCCnufft_transformer(deflection):
             points = points.astype(ctype[points.dtype]).squeeze()
         if spin > 0 and not np.iscomplexobj(points):
             points = (points[0] + 1j * points[1]).squeeze()
-        ptg = self._get_ptg(dlm, mmax, self.geominfo, self.synthesis)
+        ptg = self._get_ptg(dlm, mmax)
 
         ntheta = ducc0.fft.good_size(lmax + 2)
         nphihalf = ducc0.fft.good_size(lmax + 1)
@@ -512,7 +542,6 @@ class CPU_DUCCnufft_transformer(deflection):
 
         else:
             # perform NUFFT
-        
             map_dfs = ducc0.nufft.nu2u(points=points, coord=ptg, out=map_dfs, forward=True,
                                        epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity,
                                        periodicity=2 * np.pi, fft_order=True)
@@ -582,10 +611,10 @@ class CPU_DUCCnufft_transformer(deflection):
 
 class CPU_Lenspyx_transformer:
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
+        self.shttransformer_desc = shttransformer_desc
         # FIXME propagate mmax
         self.lenspyx = lenspyx_deflection(lenspyx_get_geom(geominfo), deflection_kwargs['dlm'], geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'], single_prec=deflection_kwargs['single_prec'])
         # self.lenspyx = self.lenspyx.change_dlm([deflection_kwargs['dlm'], None], mmax_dlm=deflection_kwargs['mmax_dlm'])
-        print(self.lenspyx.__dict__)
         
     def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
         # FIXME check incoming lmax/mmax passing, and nthreads

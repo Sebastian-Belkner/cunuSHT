@@ -29,7 +29,7 @@ rtype = {np.dtype(np.complex64): np.float32,
          np.complex128: np.float64,
          np.longcomplex: np.longfloat}
 
-HAS_DUCCPOINTING = 'get_deflected_angles' in ducc0.misc.__dict__
+HAS_DUCCPOINTING = False #'get_deflected_angles' in ducc0.misc.__dict__
 HAS_DUCCROTATE = 'lensing_rotate' in ducc0.misc.__dict__
 HAS_DUCCGRADONLY = 'mode:' in ducc0.sht.experimental.synthesis.__doc__
 
@@ -80,14 +80,13 @@ class deflection:
 
     def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
-
             Returns (npix, 3) array with new tht, phi and -gamma
-
         """
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
+                # FIXME if shtns is used, we need to access SHTns info about geom.
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=synth_spin1_map.T,
                                                         calc_rotation=calc_rotation, nthreads=self.nthreads)
@@ -96,20 +95,19 @@ class deflection:
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
                 else:
                     self.cacher.cache(fns[0], tht_phip_gamma)
-                print('build_angles')
                 return
             
-            npix = self.npix
+            npix = self.geom.npix()
             thp_phip_gamma = np.empty((3, npix), dtype=float)  # (-1) gamma in last arguement
             startpix = 0
             assert np.all(self.geom.theta > 0.) and np.all(self.geom.theta < np.pi), 'fix this (cotangent below)'
             red, imd = synth_spin1_map
             for ir in np.argsort(self.geom.ofs): # We must follow the ordering of scarf position-space map
-                pixs = Geom.rings2pix(self, [ir])
+                pixs = Geom.rings2pix(self.geom, [ir])
                 if pixs.size > 0:
                     t_red = red[pixs]
                     i_imd = imd[pixs]
-                    phis = Geom.phis(self, ir)[pixs - self.geom.ofs[ir]]
+                    phis = Geom.phis(self.geom, ir)[pixs - self.geom.ofs[ir]]
                     assert phis.size == pixs.size, (phis.size, pixs.size)
                     thts = self.geom.theta[ir] * np.ones(pixs.size)
                     thtp_, phip_ = d2ang(t_red, i_imd, thts , phis, int(np.round(np.cos(self.geom.theta[ir]))))
@@ -129,7 +127,6 @@ class deflection:
 
     def _get_ptg(self, synth_spin1_map, mmax):
         # TODO improve this and fwd angles, e.g. this is computed twice for gamma if no cacher
-       
         self._build_angles(synth_spin1_map, mmax, mmax) if not self._cis else self._build_angleseig()
         ptg = self.cacher.load('ptg')
         return ptg
@@ -145,6 +142,7 @@ class deflection:
 class GPU_cufinufft_transformer(deflection):
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         self.backend = 'GPU'
+        self.shttransformer_desc = shttransformer_desc
         
         if shttransformer_desc == 'shtns':
             self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
@@ -238,7 +236,6 @@ class GPU_cufinufft_transformer(deflection):
         else:
             ptg = None
             if ptg is None:
-                # FIXME stop passing synthesis function as _get_d1 needs it..
                 # TODO is this expensive? Can we port this to GPU?
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
                 ptg = self._get_ptg(synth_spin1_map, mmax)
@@ -263,7 +260,6 @@ class GPU_cufinufft_transformer(deflection):
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, self.nthreads)
                     self.tim.add('polrot (fortran)')
-    
         return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
@@ -278,7 +274,6 @@ class GPU_cufinufft_transformer(deflection):
             points = points.astype(ctype[points.dtype]).squeeze()
         if spin > 0 and not np.iscomplexobj(points):
             points = (points[0] + 1j * points[1]).squeeze()
-        # FIXME stop passing synthesis function as _get_d1 needs it..
         ptg = self._get_ptg(dlm, mmax)
 
 
@@ -354,26 +349,39 @@ class GPU_cufinufft_transformer(deflection):
         assert 0, "implement if needed"
         return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, alm=alm, verbose=self.verbosity)
 
+    def flip_tpg_2d(self, m):
+        # FIXME this should probably be lmax, not lmax_dlm
+        # dim of m supposedly (2, -1)
+        buff = np.array([_.reshape(2*(self.lmax_dlm+1),-1).T.flatten() for _ in m])
+        return buff
 
+    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
+        '''
+        # FIXME this is a bit of a mess, this function should not distinguish between different SHT backends.
+        # Instead, there should be a _build_d1() for each, and they should sit in the repsective transformer modules.
+        
+        This depends on the backend. If SHTns, we can use the synthesis_der1 method. If not, we use a spin-1 SHT
+        '''
+        ll = np.arange(0,lmax_dlm+1,1)
+        if self.shttransformer_desc == 'shtns':
+            if dclm is None:
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+            else:
+                assert 0, "implement if needed, not sure if this is possible with SHTns"
+                dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
+                dgclm[0] = dlm
+                dgclm[1] = dclm
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+            return self.flip_tpg_2d(synth_spin1_map)
+        elif self.shttransformer_desc == 'pysht':
+            assert 0, "implement if needed"
+        else:
+            assert 0, "Not sure what to do with {}".format(self.shttransformer_desc)
+            
+            
     def hashdict():
         '''
         Compatibility with delensalot
         '''
         return "GPU_cufinufft_transformer"
-    
-    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
-        ll = np.arange(0,lmax_dlm+1,1)
-        if dclm is None:
-            # undo p2d to use
-            # TODO GPU deflection currently runs with derivative of the deflection field
-            # d1 = synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads, mode='GRAD_ONLY')
-            
-            synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.sqrt(ll*(ll+1))))
-        else:
-            # FIXME: want to do that only once
-            dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
-            dgclm[0] = dlm
-            dgclm[1] = dclm
-            synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.sqrt(ll*(ll+1))))
-        print(synth_spin1_map, synth_spin1_map[0].shape)
-        return np.atleast_2d(synth_spin1_map)
+
