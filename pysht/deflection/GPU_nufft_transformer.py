@@ -50,7 +50,7 @@ def ducc_sht_mode(gclm, spin):
 
 
 class deflection:
-    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-5, verbosity=0, single_prec=True, planned=False, nthreads=4):
+    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-7, verbosity=0, single_prec=True, planned=False, nthreads=4):
         self.single_prec = True
         self.verbosity = 1
         self.tim = timer(verbose=self.verbosity)
@@ -58,7 +58,7 @@ class deflection:
         self.planned = False
         self._cis = False
         self.cacher = cachers.cacher_mem()
-        self.epsilon = 1e-7
+        self.epsilon = epsilon
         
         dlm = np.atleast_2d(dlm)
         self.dlm = dlm
@@ -185,6 +185,7 @@ class GPU_cufinufft_transformer(deflection):
                 backwards: forward or backward (adjoint) operation
         """ 
             
+        ### TEST ###
         gclm = np.atleast_2d(gclm)
         lmax_unl = Alm.getlmax(gclm[0].size, mmax)
         if mmax is None:
@@ -193,19 +194,22 @@ class GPU_cufinufft_transformer(deflection):
             gclm = gclm.astype(np.complex64)
             self.tim.add('type conversion')
 
-        # transform slm to Clenshaw-Curtis map
+        ### SOME PARAMS EG FOR CC GEOMETRY ###
         ntheta = ducc0.fft.good_size(lmax_unl + 2)
         nphihalf = ducc0.fft.good_size(lmax_unl + 1)
         nphi = 2 * nphihalf
-        # Is this any different to scarf wraps ? NB: type of map, map_df, and FFTs will follow that of input gclm
-        mode = ducc_sht_mode(gclm, spin)
+       
         
-        # TODO is there a 2d FFT synthesis in SHTns?
-        map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi,
-                                spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
-        # extend map to double Fourier sphere map
-        
-        # TODO is this expensive so that we better do this on a GPU?
+        ### SYNTHESIS CC GEOMETRY ###
+        # This is merely a synthesis with a reshape, %timeit say it takes same time as synthesis_2d
+        import pysht
+        geominfo_cc = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
+        tcc = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_cc)
+        tcc.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4).reshape(2058,-1)
+
+
+        ### DOUBLING ###
+        # %timeit say 80 ms for 2058x4096 on CPU, what about GPU?
         map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
         if spin == 0:
             map_dfs[:ntheta, :] = map[0]
@@ -213,22 +217,35 @@ class GPU_cufinufft_transformer(deflection):
             map_dfs[:ntheta, :].real = map[0]
             map_dfs[:ntheta, :].imag = map[1]
         del map
-
         map_dfs[ntheta:, :nphihalf] = map_dfs[ntheta - 2:0:-1, nphihalf:]
         map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
         if (spin % 2) != 0:
             map_dfs[ntheta:, :] *= -1
 
-        # go to Fourier space
-        # TODO is there a c2c FFT in SHTns?
-        if spin == 0:
-            tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
-            map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
-            del tmp
-        else:
-            map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=map_dfs)
 
-        if self.planned: # planned nufft
+        ### GO TO FOURIER SPACE ###
+        # cufft interface gives me 11 ms as opposed to duccs 65 ms for 2058x4096
+        try:
+            import skcuda.fft as cu_fft
+            from pycuda import gpuarray
+            BATCH, NX = map_dfs.T.shape
+            data_o_gpu  = gpuarray.empty((BATCH,NX),dtype=np.complex64)
+            plan = cu_fft.Plan(map_dfs.shape, np.complex64, np.complex64)
+            data_t_gpu  = gpuarray.to_gpu(map_dfs)
+            cu_fft.ifft(data_t_gpu, data_t_gpu, plan)
+            map_dfs = data_o_gpu.get()
+        except:
+            print('could not import skcuda.fft, falling back to ducc for c2c')
+            if spin == 0:
+                tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
+                map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
+                del tmp
+            else:
+                map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=map_dfs)
+
+
+        ### NUFFT ###
+        if self.planned: 
             assert ptg is None
             plan = self.make_plan(lmax_unl, spin)
             values = plan.u2nu(grid=map_dfs, forward=False, verbosity=self.verbosity)
