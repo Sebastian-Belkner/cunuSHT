@@ -1,0 +1,123 @@
+Timer unit: 1e-06 s
+
+Total time: 11.9172 s
+File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py
+Function: gclm2lenmap at line 190
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   190                                               @profile
+   191                                               def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
+   192                                                   """GPU algorithm for spin-n remapping using cufinufft
+   193                                                       Args:
+   194                                                           gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
+   195                                                           mmax: mmax parameter of alm array layout, if different from lmax
+   196                                                           spin: spin (>=0) of the transform
+   197                                                           backwards: forward or backward (adjoint) operation
+   198                                                   """ 
+   199                                                       
+   200                                                   ### SETUP ###
+   201         1         30.2     30.2      0.0          gclm = np.atleast_2d(gclm)
+   202         1         30.9     30.9      0.0          lmax_unl = Alm.getlmax(gclm[0].size, mmax)
+   203         1          0.2      0.2      0.0          if mmax is None:
+   204                                                       mmax = lmax_unl
+   205         1          5.2      5.2      0.0          if self.single_prec and gclm.dtype != np.complex64:
+   206         1      28598.9  28598.9      0.2              gclm = gclm.astype(np.complex64)
+   207         1         21.5     21.5      0.0              self.tim.add('type conversion')
+   208         1         28.1     28.1      0.0          print(' ------------ Finished setup -------------')
+   209                                           
+   210                                           
+   211                                                   ### SOME PARAMS EG FOR CC GEOMETRY ###
+   212         1         13.7     13.7      0.0          ntheta = ducc0.fft.good_size(lmax_unl + 2)
+   213         1          0.7      0.7      0.0          nphihalf = ducc0.fft.good_size(lmax_unl + 1)
+   214         1         15.7     15.7      0.0          nphi = 2 * nphihalf
+   215         1          2.8      2.8      0.0          print(' ------------ Finished PARAMS -------------')
+   216                                           
+   217                                                   
+   218                                                   ### SYNTHESIS CC GEOMETRY ###
+   219                                                   # This is merely a synthesis with a reshape, %timeit say it takes same time as synthesis_2d
+   220         1          6.7      6.7      0.0          import pysht
+   221                                                   # FIXME how do I get a CC grid in SHTns? When fixed, switch to shtns and GPU
+   222         1          2.7      2.7      0.0          geominfo_cc = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
+   223                                                   # tcc = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_cc)
+   224         1        665.8    665.8      0.0          tcc = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_cc)
+   225         1    2135450.2    2e+06     17.9          map = tcc.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4).reshape(lmax+1,-1)
+   226         1         58.2     58.2      0.0          print(' ------------ Finished synthesis on CC -------------')
+   227                                           
+   228                                                   ### DOUBLING ###
+   229                                                   # %timeit say 80 ms for 2058x4096 on CPU, what about GPU?
+   230         1         51.5     51.5      0.0          map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
+   231         1          0.4      0.4      0.0          if spin == 0:
+   232         1     119641.4 119641.4      1.0              map_dfs[:ntheta, :] = map[0]
+   233                                                   else:
+   234                                                       map_dfs[:ntheta, :].real = map[0]
+   235                                                       map_dfs[:ntheta, :].imag = map[1]
+   236         1        545.3    545.3      0.0          del map
+   237         1     122819.2 122819.2      1.0          map_dfs[ntheta:, :nphihalf] = map_dfs[ntheta - 2:0:-1, nphihalf:]
+   238         1      54358.6  54358.6      0.5          map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
+   239         1          3.0      3.0      0.0          if (spin % 2) != 0:
+   240                                                       map_dfs[ntheta:, :] *= -1
+   241         1         34.0     34.0      0.0          print(' ------------ Finished doubling -------------')
+   242                                           
+   243                                           
+   244                                                   ### GO TO FOURIER SPACE ###
+   245                                                   # cufft interface gives me 11 ms as opposed to duccs 65 ms for 2058x4096
+   246         1          2.9      2.9      0.0          if HAS_CUFFT:
+   247         1          0.3      0.3      0.0              if spin == 0:
+   248         1         10.1     10.1      0.0                  BATCH, NX = map_dfs.T.shape
+   249         1        866.5    866.5      0.0                  data_o_gpu  = gpuarray.empty((BATCH,NX),dtype=np.complex64)
+   250         1       6568.6   6568.6      0.1                  plan = cu_fft.Plan(map_dfs.shape, np.complex64, np.complex64)
+   251         1     228606.7 228606.7      1.9                  data_t_gpu  = gpuarray.to_gpu(map_dfs)
+   252         1         98.9     98.9      0.0                  cu_fft.ifft(data_t_gpu, data_t_gpu, plan)
+   253         1     184682.1 184682.1      1.5                  map_dfs = data_o_gpu.get()
+   254                                                           # data_o_gpu.free()
+   255                                                       else:
+   256                                                           assert 0, "implement if needed"
+   257                                                   else:
+   258                                                       if spin == 0:
+   259                                                           tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
+   260                                                           map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
+   261                                                           del tmp
+   262                                                       else:
+   263                                                           map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=map_dfs)
+   264         1         24.3     24.3      0.0          print(' ------------ Finished c2c -------------')
+   265                                           
+   266                                           
+   267                                                   ### NUFFT ###
+   268         1          2.4      2.4      0.0          if self.planned: 
+   269                                                       assert ptg is None
+   270                                                       plan = self.make_plan(lmax_unl, spin)
+   271                                                       values = plan.u2nu(grid=map_dfs, forward=False, verbosity=self.verbosity)
+   272                                                       self.tim.add('planned u2nu')
+   273                                                   else:
+   274         1          0.4      0.4      0.0              ptg = None
+   275         1          0.3      0.3      0.0              if ptg is None:
+   276                                                           # TODO is this expensive? Can we port this to GPU?
+   277         1    2244256.5    2e+06     18.8                  synth_spin1_map = self._build_d1(dlm, lmax, mmax)
+   278         1    3766871.0    4e+06     31.6                  ptg = self._get_ptg(synth_spin1_map, mmax)
+   279         1         37.2     37.2      0.0              self.tim.add('get ptg')
+   280                                           
+   281         1     179749.2 179749.2      1.5              map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
+   282         1    2445389.6    2e+06     20.5              v_ = cufinufft.nufft2d2(x=cp.array(ptg[:,1][::-1]), y=cp.array(ptg[:,0]), data=cp.array(map_shifted.astype(np.complex128)))
+   283         1     303500.2 303500.2      2.5              values = np.roll(np.real(v_.get()).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
+   284         1         23.4     23.4      0.0              self.tim.add('u2nu')
+   285         1         32.6     32.6      0.0          print(' ------------ Finished nuFFT -------------')
+   286                                           
+   287         1          2.2      2.2      0.0          if polrot * spin:
+   288                                                       if self._cis:
+   289                                                           cis = self._get_cischi()
+   290                                                           for i in range(polrot * abs(spin)):
+   291                                                               values *= cis
+   292                                                           self.tim.add('polrot (cis)')
+   293                                                       else:
+   294                                                           if HAS_DUCCROTATE:
+   295                                                               lensing_rotate(values, self._get_gamma(), spin, self.nthreads)
+   296                                                               self.tim.add('polrot (ducc)')
+   297                                                           else:
+   298                                                               func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
+   299                                                               func(values, self._get_gamma(), spin, self.nthreads)
+   300                                                               self.tim.add('polrot (fortran)')
+   301         1          2.7      2.7      0.0          print(' ------------ returning result ------------')
+   302         1      94059.5  94059.5      0.8          return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
+
+ 11.92 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py:190 - gclm2lenmap

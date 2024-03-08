@@ -11,8 +11,12 @@ import cufinufft
 import cupy as cp
 import healpy as hp
 
+import pysht
+import line_profiler
+
 import pysht.geometry as geometry
 from pysht.geometry import Geom
+from pysht.utils import timer
 from pysht.sht.GPU_sht_transformer import GPU_SHT_pySHT_transformer, GPU_SHTns_transformer
 from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 
@@ -29,9 +33,10 @@ rtype = {np.dtype(np.complex64): np.float32,
          np.complex128: np.float64,
          np.longcomplex: np.longfloat}
 
-HAS_DUCCPOINTING = False #'get_deflected_angles' in ducc0.misc.__dict__
+HAS_DUCCPOINTING = 'get_deflected_angles' in ducc0.misc.__dict__
 HAS_DUCCROTATE = 'lensing_rotate' in ducc0.misc.__dict__
 HAS_DUCCGRADONLY = 'mode:' in ducc0.sht.experimental.synthesis.__doc__
+
 
 if HAS_DUCCPOINTING:
     from ducc0.misc import get_deflected_angles
@@ -42,6 +47,16 @@ try:
     HAS_FORTRAN = True
 except:
     HAS_FORTRAN = False
+    
+try: 
+    import skcuda.fft as cu_fft
+    from pycuda import gpuarray
+    import pycuda.autoinit
+    HAS_CUFFT = True
+    print('Successfully imported skcuda.fft')
+except:
+    print("Could not import skcuda.fft")
+    HAS_CUFFT = False
 
 @staticmethod
 def ducc_sht_mode(gclm, spin):
@@ -51,7 +66,7 @@ def ducc_sht_mode(gclm, spin):
 
 class deflection:
     def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-7, verbosity=0, single_prec=True, planned=False, nthreads=4):
-        self.single_prec = True
+        self.single_prec = single_prec
         self.verbosity = 1
         self.tim = timer(verbose=self.verbosity)
         self.nthreads = nthreads
@@ -77,7 +92,7 @@ class deflection:
         elif self.verbosity:
             print('deflection std is %.2e amin' % sig_d_amin)
 
-
+    # @profile
     def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
             Returns (npix, 3) array with new tht, phi and -gamma
@@ -176,7 +191,8 @@ class GPU_cufinufft_transformer(deflection):
         self.set_geometry(geominfo)
 
 
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
+    # @profile
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, cc_transformer=None):
         """GPU algorithm for spin-n remapping using cufinufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -185,28 +201,31 @@ class GPU_cufinufft_transformer(deflection):
                 backwards: forward or backward (adjoint) operation
         """ 
             
-        ### TEST ###
+        ### SETUP ###
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('gclm2lenmap()')
         gclm = np.atleast_2d(gclm)
         lmax_unl = Alm.getlmax(gclm[0].size, mmax)
         if mmax is None:
             mmax = lmax_unl
         if self.single_prec and gclm.dtype != np.complex64:
             gclm = gclm.astype(np.complex64)
-            self.tim.add('type conversion')
+        # self.timer.add('setup')
+        print(' ------------ Finished setup -------------')
+
 
         ### SOME PARAMS EG FOR CC GEOMETRY ###
         ntheta = ducc0.fft.good_size(lmax_unl + 2)
         nphihalf = ducc0.fft.good_size(lmax_unl + 1)
         nphi = 2 * nphihalf
-       
+        # self.timer.add('params')
+        print(' ------------ Finished PARAMS -------------')
+
         
         ### SYNTHESIS CC GEOMETRY ###
-        # This is merely a synthesis with a reshape, %timeit say it takes same time as synthesis_2d
-        import pysht
-        geominfo_cc = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
-        tcc = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_cc)
-        tcc.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4).reshape(2058,-1)
-
+        map = cc_transformer.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4).reshape(lmax+1,-1)
+        self.timer.add('synthesis')
+        print(' ------------ Finished synthesis on CC -------------')
 
         ### DOUBLING ###
         # %timeit say 80 ms for 2058x4096 on CPU, what about GPU?
@@ -221,27 +240,32 @@ class GPU_cufinufft_transformer(deflection):
         map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
         if (spin % 2) != 0:
             map_dfs[ntheta:, :] *= -1
+        self.timer.add('doubling')
+        print(' ------------ Finished doubling -------------')
 
 
         ### GO TO FOURIER SPACE ###
         # cufft interface gives me 11 ms as opposed to duccs 65 ms for 2058x4096
-        try:
-            import skcuda.fft as cu_fft
-            from pycuda import gpuarray
-            BATCH, NX = map_dfs.T.shape
-            data_o_gpu  = gpuarray.empty((BATCH,NX),dtype=np.complex64)
-            plan = cu_fft.Plan(map_dfs.shape, np.complex64, np.complex64)
-            data_t_gpu  = gpuarray.to_gpu(map_dfs)
-            cu_fft.ifft(data_t_gpu, data_t_gpu, plan)
-            map_dfs = data_o_gpu.get()
-        except:
-            print('could not import skcuda.fft, falling back to ducc for c2c')
+        if HAS_CUFFT:
+            if spin == 0:
+                BATCH, NX = map_dfs.T.shape
+                data_o_gpu  = gpuarray.empty((BATCH,NX),dtype=np.complex64)
+                plan = cu_fft.Plan(map_dfs.shape, np.complex64, np.complex64)
+                data_t_gpu  = gpuarray.to_gpu(map_dfs)
+                cu_fft.ifft(data_t_gpu, data_t_gpu, plan)
+                map_dfs = data_o_gpu.get()
+                # data_o_gpu.free()
+            else:
+                assert 0, "implement if needed"
+        else:
             if spin == 0:
                 tmp = np.empty(map_dfs.T.shape, dtype=np.complex128)
                 map_dfs = ducc0.fft.c2c(map_dfs.T, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
                 del tmp
             else:
                 map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=map_dfs)
+        self.timer.add('c2c')
+        print(' ------------ Finished c2c -------------')
 
 
         ### NUFFT ###
@@ -249,34 +273,41 @@ class GPU_cufinufft_transformer(deflection):
             assert ptg is None
             plan = self.make_plan(lmax_unl, spin)
             values = plan.u2nu(grid=map_dfs, forward=False, verbosity=self.verbosity)
-            self.tim.add('planned u2nu')
         else:
             ptg = None
             if ptg is None:
-                # TODO is this expensive? Can we port this to GPU?
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
+                # TODO is this expensive? Can we port this to GPU?
                 ptg = self._get_ptg(synth_spin1_map, mmax)
-            self.tim.add('get ptg')
-
+            self.timer.add('get ptg')
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
-            v_ = cufinufft.nufft2d2(x=cp.array(ptg[:,1][::-1]), y=cp.array(ptg[:,0]), data=cp.array(map_shifted.astype(np.complex128)))
+            data_ = cp.array(map_shifted.astype(np.complex128))
+            x_ = cp.array(ptg[:,1][::-1])
+            y_ = cp.array(ptg[:,0])
+            self.timer.add('cupy array creation')
+            v_ = cufinufft.nufft2d2(x=x_, y=y_, data=data_)
+            self.timer.add('nuFFT')
             values = np.roll(np.real(v_.get()).reshape(lmax+1,-1), int(self.geom.nph[0]/2-1), axis=1)
-            self.tim.add('u2nu')
+            self.timer.add('nuFFT rolling')
+            
+        print(' ------------ Finished nuFFT -------------')
 
         if polrot * spin:
             if self._cis:
                 cis = self._get_cischi()
                 for i in range(polrot * abs(spin)):
                     values *= cis
-                self.tim.add('polrot (cis)')
             else:
                 if HAS_DUCCROTATE:
                     lensing_rotate(values, self._get_gamma(), spin, self.nthreads)
-                    self.tim.add('polrot (ducc)')
                 else:
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, self.nthreads)
-                    self.tim.add('polrot (fortran)')
+            self.timer.add('rotation')
+        print(' ------------ Finished rotation -------------')
+        
+        print(' ------------ returning result ------------')
+        self.timer.dumpjson('/mnt/home/sbelkner/git/pySHT/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
         return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 

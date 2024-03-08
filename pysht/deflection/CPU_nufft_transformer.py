@@ -2,6 +2,8 @@ import numpy as np
 
 import healpy as hp
 
+import line_profiler
+
 from lenspyx.remapping import deflection as lenspyx_deflection
 from lenspyx.utils_hp import Alm
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
@@ -125,7 +127,7 @@ class deflection:
         else:
             assert 0, "Not sure what to do with {}".format(self.shttransformer_desc)
 
-
+    # @profile
     def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
 
@@ -228,8 +230,8 @@ class CPU_finufft_transformer(deflection):
         self.nufftgeom = geometry.get_geom(geom_desc)
         self.set_geometry(geom_desc)
 
-
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True):
+    # @profile
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, cc_transformer=None):
         """CPU algorithm for spin-n remapping using finufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -237,36 +239,43 @@ class CPU_finufft_transformer(deflection):
                 spin: spin (>=0) of the transform
                 backwards: forward or backward (adjoint) operation
         """ 
-            
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('gclm2lenmap()')
         gclm = np.atleast_2d(gclm)
         lmax_unl = Alm.getlmax(gclm[0].size, mmax)
         if mmax is None:
             mmax = lmax_unl
         if self.single_prec and gclm.dtype != np.complex64:
             gclm = gclm.astype(np.complex64)
-            self.tim.add('type conversion')
+        # self.timer.add('setup')
 
         # transform slm to Clenshaw-Curtis map
         ntheta = ducc0.fft.good_size(lmax_unl + 2)
         nphihalf = ducc0.fft.good_size(lmax_unl + 1)
         nphi = 2 * nphihalf
-        # Is this any different to scarf wraps ? NB: type of map, map_df, and FFTs will follow that of input gclm
+        # self.timer.add('params')
+        print(' ------------ Finished PARAMS -------------')
+        
+        ### SYNTHESIS CC GEOMETRY ###
         mode = ducc_sht_mode(gclm, spin)
-        map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi,
-                                spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
-        # extend map to double Fourier sphere map
+        map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi, spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
         map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
+        self.timer.add('synthesis')
+        print(' ------------ Finished synthesis on CC -------------')
+        
         if spin == 0:
             map_dfs[:ntheta, :] = map[0]
         else:
             map_dfs[:ntheta, :].real = map[0]
             map_dfs[:ntheta, :].imag = map[1]
         del map
-
         map_dfs[ntheta:, :nphihalf] = map_dfs[ntheta - 2:0:-1, nphihalf:]
         map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
         if (spin % 2) != 0:
             map_dfs[ntheta:, :] *= -1
+        self.timer.add('doubling')
+        print(' ------------ Finished doubling -------------')
+
 
         # go to Fourier space
         if spin == 0:
@@ -275,7 +284,9 @@ class CPU_finufft_transformer(deflection):
             del tmp
         else:
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
-
+        self.timer.add('c2c')
+        print(' ------------ Finished c2c -------------')
+        
         if self.planned: # planned nufft
             assert ptg is None
             plan = self.make_plan(lmax_unl, spin)
@@ -286,16 +297,17 @@ class CPU_finufft_transformer(deflection):
             if ptg is None:
                 # FIXME stop passing synthesis function as _get_d1 needs it..
                 ptg = self._get_ptg(dlm, mmax)
-            self.tim.add('get ptg')
-
+            self.timer.add('get ptg')
             map_shifted = np.fft.fftshift(map_dfs, axes=(0,1))
             v_ = finufft.nufft2d2(x=ptg[:,1][::-1], y=ptg[:,0], f=map_shifted.T.astype(np.complex128))
+            self.timer.add('nuFFT')
             # FIXME ntheta and nphi are not the same for SHTns and ducc, SHTns.constructor gives the right shapes here.
             if self.shttransformer_desc == 'sthns':
                 values = np.roll(np.real(v_).reshape(*self.geom.constructor.spat_shape).T, int(self.geom.nph[0]/2-1), axis=1)
             else:
                 values = np.roll(np.real(v_).reshape(-1,self.geom.nph[0]), int(self.geom.nph[0]/2-1), axis=1)
-            self.tim.add('u2nu')
+            self.timer.add('nuFFT rolling')
+        print(' ------------ Finished nuFFT -------------')
 
         if polrot * spin:
             if self._cis:
@@ -311,7 +323,10 @@ class CPU_finufft_transformer(deflection):
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, nthreads)
                     self.tim.add('polrot (fortran)')
-        # Return real array of shape (2, npix) for spin > 0
+        print(' ------------ Finished rotation -------------')
+        
+        print(' ------------ returning result ------------')
+        self.timer.dumpjson('/mnt/home/sbelkner/git/pySHT/test/benchmark/timings/CPU_finufft_{}'.format(lmax))
         return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
         # np.atleast_2d(values.real.flatten())
 

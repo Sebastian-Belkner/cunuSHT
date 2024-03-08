@@ -3,3 +3,10 @@ module load python cuda; source $pyshtenv; cd git/pySHT/pysht/c/
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 
 srun python3 -m notebook --port=1234 --ip=$hostname
+
+
+
+to install shtns on the Rusty cluster,
+export CUDA_PATH= to cuda without /lib or /bin
+then LD_LIBRARY_PATH must point to /lib64
+

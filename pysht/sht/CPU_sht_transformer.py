@@ -16,8 +16,6 @@ class CPU_SHT_DUCC_transformer():
 
 
     def set_geometry(self, geom_desc):
-        if 'mmax' in geom_desc[1]:
-            del geom_desc[1]['mmax']
         self.geom = geometry.get_geom(geom_desc)
 
 
@@ -79,10 +77,14 @@ class CPU_SHT_SHTns_transformer():
     def set_geometry(self, geominfo):
         # TODO set_geometry is more a constructor + set_grid in shtns
         # self.geom = geometry.get_geom(geom_desc)
-        self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
-        self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS)
         self.geom = geometry.get_geom(geominfo)
-        
+        if geominfo[0] == 'cc':
+            self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
+            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
+        else:
+            self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
+            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
+           
         
     def set_constructor(self, lmax, mmax):
         assert 0, "implement if needed"
