@@ -13,6 +13,15 @@ module load python gcc cuda
 connect via VS Code kernel
 ```
 
+## profile
+
+to profile your code with python,
+
+To profile this:
+ 1. `kernprof -l gclm2lenmap_GPU.py'`
+ 2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"`
+
+
 ## Ygdrassil
 Quickhelp to activate GPU on jupyter notebook in VS code
 

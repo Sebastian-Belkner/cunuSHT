@@ -2,6 +2,7 @@ import numpy as np
 
 import shtns
 import pysht.geometry as geometry
+from pysht.helper import shape_decorator
 
 
 class GPU_SHTns_transformer():
@@ -17,19 +18,21 @@ class GPU_SHTns_transformer():
         self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
+            # self.constructor.set_grid(flags=shtns.sht_reg_dct + shtns.SHT_THETA_CONTIGUOUS)
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
-        
-
+        self.theta_contiguous = True
         
     def set_constructor(self, lmax, mmax):
         assert 0, "implement if needed"
         self.constructor = shtns.sht(int(lmax), int(mmax))
         self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
+        
 
 
+    @shape_decorator
     def synthesis(self, gclm: np.ndarray, spin, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed

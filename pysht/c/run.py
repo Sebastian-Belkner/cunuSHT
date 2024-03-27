@@ -34,7 +34,6 @@ def synthesis_ring():
     ll = np.arange(lmax_+1)
     alm_ = hp.synalm(1.*np.exp(-ll/100.))
     
-    
     alm_ = [c_complex(np.real(a), np.imag(a)) for a in alm_]
     print(len(alm_))
     # Convert Python lists to ctypes arrays

@@ -2,6 +2,8 @@ module load python cuda; source $pyshtenv; cd git/pySHT/pysht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 
+nvcc  -o ptg.so -shared -Xcompiler -fPIC ptg.cu
+
 srun python3 -m notebook --port=1234 --ip=$hostname
 
 
@@ -10,3 +12,18 @@ to install shtns on the Rusty cluster,
 export CUDA_PATH= to cuda without /lib or /bin
 then LD_LIBRARY_PATH must point to /lib64
 
+
+to run profiling:
+    add decorator @profile to the function
+    run kernprof -l -v script.py
+    to run the script with the profiler
+    python -m cProfile -o output.pstats script.py
+    to visualize the output
+    snakeviz output.pstats
+    or
+    pyprof2calltree -i output.pstats -k
+    
+
+To profile this:
+ 1. `kernprof -l gclm2lenmap_GPU.py'`
+ 2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"

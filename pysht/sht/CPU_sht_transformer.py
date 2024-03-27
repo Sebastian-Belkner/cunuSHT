@@ -9,16 +9,19 @@ import lenspyx.utils_hp as utils_hp
 import shtns
 
 import pysht.geometry as geometry
+from pysht.helper import shape_decorator
 
 class CPU_SHT_DUCC_transformer():
     def __init__(self, geom=None):
         self.geom = geometry.get_geom(geom)
+        self.theta_contiguous = False
 
 
     def set_geometry(self, geom_desc):
         self.geom = geometry.get_geom(geom_desc)
+        self.theta_contiguous = False
 
-
+    @shape_decorator
     def synthesis(self, gclm: np.ndarray, spin, lmax, mmax, nthreads, map:np.ndarray=None, **kwargs):
         """Wrapper to ducc forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
@@ -80,10 +83,12 @@ class CPU_SHT_SHTns_transformer():
         self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
-            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
+            # self.constructor.set_grid(flags=shtns.sht_reg_dct + shtns.SHT_THETA_CONTIGUOUS)
+            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
+        self.theta_contiguous = True
            
         
     def set_constructor(self, lmax, mmax):
@@ -91,7 +96,7 @@ class CPU_SHT_SHTns_transformer():
         self.constructor = shtns.sht(int(lmax), int(mmax))
         self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS)
 
-
+    @shape_decorator
     def synthesis(self, gclm: np.ndarray, spin, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed

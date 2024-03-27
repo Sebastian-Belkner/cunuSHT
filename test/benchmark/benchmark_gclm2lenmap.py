@@ -44,7 +44,6 @@ for lmax in lmaxs:
                 print("\n----Testing function gclm2lenmap...----")
                 # t1 = process_time()
                 geominfo_cc = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
-                # tcc = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_cc)
                 tcc = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_cc)
                 defres = t.gclm2lenmap(gclm=toyskylm, dlm=toyskylm, lmax=lmax, mmax=lmax, spin=0, nthreads=4, cc_transformer=tcc)
                 # t2 = process_time()

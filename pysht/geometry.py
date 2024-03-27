@@ -32,8 +32,7 @@ class Geom:
                  phi0:np.ndarray[float],
                  nphi:np.ndarray[np.uint64],
                  ringstart:np.ndarray[np.uint64],
-                 w:np.ndarray[float],
-                 backend='CPU'):
+                 w:np.ndarray[float]):
         """Iso-latitude pixelisation of the sphere
                 Args:
                     theta: rings co-latitudes in radians in [0, pi]
@@ -52,7 +51,6 @@ class Geom:
         self.nph = nphi[argsort].astype(np.uint64)
         self.ofs = ringstart[argsort].astype(np.uint64)
 
-        self.backend = backend
         self._cis = False
         self.cacher = cachers.cacher_mem(safe=False)
         self.sht_tr = 4

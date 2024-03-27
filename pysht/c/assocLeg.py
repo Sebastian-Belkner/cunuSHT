@@ -47,5 +47,3 @@ def assLegendre():
     
 if __name__ == "__main__":
     assLegendre()
-    # multiply()
-    # fibonacci()
