@@ -2,7 +2,7 @@ module load python cuda; source $pyshtenv; cd git/pySHT/pysht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 
-nvcc  -o ptg.so -shared -Xcompiler -fPIC ptg.cu
+nvcc  -o pointing.so -shared -Xcompiler -fPIC pointing.cu
 
 srun python3 -m notebook --port=1234 --ip=$hostname
 

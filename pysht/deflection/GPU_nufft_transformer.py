@@ -100,7 +100,7 @@ class deflection:
             print('deflection std is %.2e amin' % sig_d_amin)
 
     # @profile
-    def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=False, HAS_DUCCPOINTING=True):
+    def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=False, HAS_DUCCPOINTING=True):
         """Builds deflected positions and angles
             Returns (npix, 3) array with new tht, phi and -gamma
         """
@@ -148,37 +148,38 @@ class deflection:
             return
 
 
-    def ptg_GPU(synth_spin1_map, lmax_dlm, geominfo):
-        cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/ptg.so')
-        
-        cuda_lib.ptg.argtypes = [
-        # ctypes.POINTER(c_complex),
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.POINTER(ctypes.c_double),
+    def pointing_GPU(self, synth_spin1_map):
+        cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
+        cuda_lib.pointing.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int,
+            ctypes.c_int
         ]
-        cuda_lib.ptg.restype = None
-            # Prepare data
-        lmax_ = lmax_dlm
-        Nlat, Nlon = 1000, 1000
-        size_ = Nlat*Nlon
-        output_array = np.zeros(shape=size_, dtype=np.double)
-        ll = np.arange(lmax_+1)
-        alm_ = hp.synalm(1.*np.exp(-ll/100.))
+        cuda_lib.pointing.restype = None
         
-        alm_ = [c_complex(np.real(a), np.imag(a)) for a in alm_]
+        thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta, self.geom.phi0, self.geom.nph.astype(int), self.geom.ofs
+        npix = sum(nphis_)
+        nrings = thetas_.size
+        red_, imd_ = synth_spin1_map
+        output_array_ = np.zeros(shape=synth_spin1_map.size, dtype=np.double)
         # Convert Python lists to ctypes arrays
-        lmax = ctypes.c_int(lmax_)
-        size = ctypes.c_int(output_array.shape[0])
-        output_x = (ctypes.c_double * size_)(*output_array)
-        # alm = (c_complex * len(alm_))(*alm_)
-        result = np.zeros_like(output_x)
+        thetas = (ctypes.c_double * nrings)(*thetas_)
+        phi0 = (ctypes.c_double * nrings)(*phi0_)
+        nphis = (ctypes.c_int * nrings)(*nphis_)
+        ringstarts = (ctypes.c_double * ringstarts_.size)(*ringstarts_)
+        red = (ctypes.c_double * npix)(*red_)
+        imd = (ctypes.c_double * npix)(*imd_)
         
-        output_array = np.zeros(shape=size_, dtype=np.double)
-        output_x = (ctypes.c_double * size_)(*output_array)
-        cuda_lib.ptg(len(alm_), Nlat, Nlon, output_x)
-        return np.array(output_x)
+        output_array = (ctypes.c_double * output_array_.size)(*output_array_)
+        
+        cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        return np.array(output_array).reshape(synth_spin1_map.shape).T
+    
 
     def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):
         assert len(dlm) == 2, (len(dlm), 'gradient and curl mode (curl can be none)')
@@ -353,11 +354,11 @@ class GPU_cufinufft_transformer(deflection):
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
                 # TODO Port this to GPU
                 if True:
-                    ptg = self.ptg_GPU()
+                    ptg = self.pointing_GPU(synth_spin1_map)
                 else:
                     self._build_angles(synth_spin1_map, mmax, mmax, HAS_DUCCPOINTING=HAS_DUCCPOINTING) if not self._cis else self._build_angleseig()
-                    ptg = self.cacher.load('ptg')
-            self.timer.add('get ptg')
+                    ptg = self.cacher.load('pointing')
+            self.timer.add('get pointing')
             if debug:
                 ret.append(np.copy(ptg))
             return ptg
