@@ -2,54 +2,59 @@
 #include <stdlib.h>
 #include <math.h>
 #include <assert.h>
+#include <cmath>
 
-__device__ double* dev_sin(double* arr){
-    const int size = sizeof(arr) / sizeof(arr[0]);
-    double result[size] = {0.0};
+
+__device__ double dev_power_element(double value, int exponent){
+    double result = exponent > 1 ? value : 1;
+    for (int i = 1; i < exponent; i++) {
+        result *= value;
+    }
+    return result;
+}
+
+__device__ double* dev_sin(double* arr, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
         result[i] = sin(arr[i]);
     }
     return result;
 }
 
-void maximum(const double* arr1, const double* arr2, double* result, int size) {
+__device__ void maximum(const double* arr1, const double* arr2, double* result, const int size) {
     for (int i = 0; i < size; i++) {
         result[i] = arr1[i] > arr2[i] ? arr1[i] : arr2[i];
     }
 }
 
-__device__ double* dev_cos(double* arr){
-    const int size = sizeof(arr) / sizeof(arr[0]);
-    double result[size];
+__device__ double* dev_cos(double* arr, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
         result[i] = cos(arr[i]);
     }
     return result;
 }
 
-__device__ double* dev_asin(double* arr){
-    const int size = sizeof(arr) / sizeof(arr[0]);
-    double result[size];
+__device__ double* dev_asin(double* arr, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
         result[i] = asin(arr[i]);
     }
     return result;
 }
 
-__device__ double* dev_acos(double* arr){
-    const int size = sizeof(arr) / sizeof(arr[0]);
-    double result[size];
+__device__ double* dev_acos(double* arr, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
         result[i] = acos(arr[i]);
     }
     return result;
 }
 
-__device__ double* dev_atan2(double* arr){
-    const int size = sizeof(arr) / sizeof(arr[0]);
-    double result[size];
+__device__ double* dev_atan2(double* arr, double* arr2, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
-        result[i] = atan2(arr[i]);
+        result[i] = atan2(arr[1], arr2[i]);
     }
     return result;
 }
@@ -62,9 +67,8 @@ __device__ int* ring2pixs(int ringstart, int nphi) {
     return concatenated;
 }
 
-__device__ double* dev_besselj0(double* x) {
-    int size = sizeof(x) / sizeof(x[0]);
-    double* res = (double*)malloc(sizeof(x) / sizeof(x[0]) * sizeof(double));
+__device__ double* dev_besselj0(double* x, const int size) {
+    double* result = (double*)malloc(size * sizeof(double));
     double sum, factorial, power, term;
     for (int i = 0; i < size; i++) { 
         sum = 1.0;
@@ -72,49 +76,45 @@ __device__ double* dev_besselj0(double* x) {
         power = 1.0;
         for (int k = 1; k < 50; k++) {
             factorial *= k;
-            power *= (x / 2.0) * (x / 2.0);
+            power *= (x[i] / 2.0) * (x[i] / 2.0);
             term = power / (factorial * factorial);
             sum += term * term;
         }
-        res[i] = sum;
+        result[i] = sum;
     }
-    return res;
+    return result;
 }
 
-__device__ double* getelements(double* arr, int* indices){
-    int numIndices = sizeof(indices) / sizeof(indices[0]);
-    double* res = (double*)malloc(numIndices * sizeof(double));
-    for (int i = 0; i < numIndices; i++) {
-        res[i] = arr[indices[i]];
+__device__ double* getelements(double* arr, int* indices, const int size_indices){
+    double* result = (double*)malloc(size_indices * sizeof(double));
+    for (int i = 0; i < size_indices; i++) {
+        result[i] = arr[indices[i]];
     }
-    return res;
+    return result;
 }
 
-__device__ double* sindod_m1(double* d){
-    size_t size = sizeof(d) / sizeof(d[0]);
-    double* res[size];
-    double* d2[size];
+__device__ double* sindod_m1(double* d, const int size){
+    double* result = (double*)malloc(size * sizeof(double));
+    double* d2 = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
         d2[i] = d[i] * d[i];
     }
     for (int i = 0; i < size; i++) {
-        res[i] = -1 / 6. d2[i]**2 + 1. / 120. * d2[i]**4 - 1. / 5040. * d2[i]**6;
+        result[i] = -1./6. * dev_power_element(d2[i],2) + 1./120. * dev_power_element(d2[i],4) - 1./5040. * dev_power_element(d2[i],6);
     }
-    //*res = sin(*d - 1);
-    return res;
+    return result;
 }
 
-__device__ double* dev_norm(double* x, double* y) {
-    int size = sizeof(x) / sizeof(x[0]);
-    double res[size];
+__device__ double* dev_norm(double* x, double* y, const int size) {
+    double* result = (double*)malloc(size * sizeof(double));
     for (int i = 0; i < size; i++) {
-        res[i] = sqrt(x[i] * x[i] + y[i] * y[i]);
+        result[i] = sqrt(x[i] * x[i] + y[i] * y[i]);
     }
-    return res;
+    return result;
 }
 
-__device__ double dev_max(const float* arr, int size) {
-    float max = arr[0];
+__device__ double dev_max(const double* arr, int size) {
+    double max = arr[0];
     for (int i = 1; i < size; i++) {
         if (arr[i] > max) {
             max = arr[i];
@@ -124,51 +124,58 @@ __device__ double dev_max(const float* arr, int size) {
 }
 
 __device__ double* d2ang(double* red, double* imd, double* tht, double* phi, int triquand){
-    int npix = sizeof(red) / sizeof(red[0]);
-    int nphi = sizeof(phi) / sizeof(phi[0]);
-    double *d = dev_norm(red, imd);
-    if (dev_max(d) > 0.01){
-        double* sind_d = dev_besselj0(d);
+    const int npix = sizeof(red) / sizeof(red[0]);
+    double *d = dev_norm(red, imd, npix);
+    double* sind_d = (double*)malloc(npix * sizeof(double));
+    double PI = 3.14159265359;
+    double *dphi = (double*)malloc(npix * sizeof(double));
+    double *thtp = (double*)malloc(npix * sizeof(double));
+    if (dev_max(d, npix) > 0.01){
+        sind_d = dev_besselj0(d, npix);
     } else {
-        double sind_d[npix] = {0.0};
-        double buffer[npix] = _sindod_m1(d);
+        double *buffer = sindod_m1(d, npix);
         for (int i = 0; i < npix; i++) {
             sind_d[i] = 1. + buffer[i]; // # sin(d) / d avoiding division by zero or near zero, assuming small deflections
         }
     }
     if (triquand == 0){ // #---'close' to equator, where cost ~ 0
-        double cost[npix] = dev_cos(tht);
+        double *cost = dev_cos(tht, npix);
+        double *cosd = dev_cos(d, npix);
         for (int i = 0; i < npix; i++) {
             if (cost[i] > 0.8) {
                 printf("wrong localization: %f\n", cost[i]);
             }
         }
-        double costp[npix] = {0.0};
-        double dphi[npix] = {0.0};
-        double thtp[npix] = {0.0};
+        double *costp = (double*)malloc(npix * sizeof(double));
+
+        
+        double *bufferasin = (double*)malloc(npix * sizeof(double));
         for (int i = 0; i < npix; i++) {
-            costp[i] = cost[i] * dev_cos(d[i]) - red[i] * sind_d[i] * sqrt(1. - cost[i] ** 2);
-            dphi[i] = dev_asin(imd[i] / sqrt(1. - costp[i] ** 2) * sind_d[i]);
-            thtp[i] = dev_acos(costp[i]);
+            bufferasin[i] = imd[i] / sqrt(1. - dev_power_element(cost[i],2)) * sind_d[i];
         }
+        dphi = dev_asin(bufferasin, npix);
+        for (int i = 0; i < npix; i++) {
+            costp[i] = cost[i] * cosd[i] - red[i] * sind_d[i] * sqrt(1. - dev_power_element(cost[i],2));
+        }
+        thtp = dev_acos(costp, npix);
     } else {
         int isnorth = triquand == 1 ? 1 : 0;
-        double sint[npix] = dev_sin(tht);
+        double *sint = dev_sin(tht, npix);
         double ththalf[npix] = {0.0};
         for (int i = 0; i < npix; i++) {
             ththalf[i] = tht[i] * 0.5;
         }
-        double *e_t = isnorth == 1 ? dev_sin(ththalf) : dev_cos(ththalf);  //# 1 -+ costh with no precision loss
+        double *e_t = isnorth == 1 ? dev_sin(ththalf, npix) : dev_cos(ththalf, npix);  //# 1 -+ costh with no precision loss
         for (int i = 0; i < npix; i++) {
-            e_t[i] = 2*e_t[i]**2;
+            e_t[i] = 2. * dev_power_element(e_t[i],2);
         }
         double dhalf[npix] = {0.0};
         for (int i = 0; i < npix; i++) {
             dhalf[i] = d[i] * 0.5;
         }
-        double e_d[npix] = {0.0};
+        double* e_d = dev_sin(dhalf, npix);
         for (int i = 0; i < npix; i++) {
-            e_d[i] = 2 * dev_sin(dhalf[i]) ** 2;
+            e_d[i] = 2. * dev_power_element(e_d[i],2);
         }
         double e_tp[npix] = {0.0};
         for (int i = 0; i < npix; i++) {
@@ -185,34 +192,33 @@ __device__ double* d2ang(double* red, double* imd, double* tht, double* phi, int
         for (int i = 0; i < npix; i++) {
             sintp[i] = sqrt(max[i]);
         }
-
         if (isnorth == 1){
             //assert np.max(tht) < np.pi * 0.4, ('wrong localization', np.max(tht)); //# -- for the arcsin at the end
-            double* thtp = dev_asin(sintp);
+            thtp = dev_asin(sintp, npix);
             double buffer_x[npix], buffer_y[npix]; 
             for (int i = 0; i < npix; i++) {
                 // TODO possible x/y confusion
                 buffer_x[i]  = (1. - e_d[i]) * sint[i] + red[i] * sind_d[i] * (1. - e_t[i]);
                 buffer_y[i] = imd[i] * sind_d[i];
-            double* dphi = dev_atan2(buffer_y, buffer_x);
+            dphi = dev_atan2(buffer_y, buffer_x, npix);
             }
         } else {
             //assert np.min(tht) > np.pi * 0.4, ('wrong localization', np.min(tht)); //# -- for the arcsin at the end
-            double thtp[npix] = dev_asin(sintp);
+            thtp = dev_asin(sintp, npix);
             double buffer_x[npix], buffer_y[npix]; 
             for (int i = 0; i < npix; i++) {
                 // TODO possible x/y confusion
-                thtp[i] = pi -  thtp[i];
+                thtp[i] = PI -  thtp[i];
                 buffer_x[i]  = (1. - e_d[i]) * sint[i] + red[i] * sind_d[i] * (e_t[i] - 1.);
                 buffer_y[i] = imd[i] * sind_d[i];
             }
-            double* dphi = dev_atan2(buffer_y, buffer_x);
+            dphi = dev_atan2(buffer_y, buffer_x, npix);
         }
     }
-    double ret[2*npix];
+    double *ret = (double*)malloc(2*npix * sizeof(double));
     for (int i = 0; i < npix; i++) {
         ret[i] = thtp[i];
-        ret[i + npix] = (phi[i] + dphi[i]) % (2. * np.pi);
+        ret[i + npix] = fmod(phi[i] + dphi[i], 2. * PI);
     }
     return ret;
 }
@@ -231,38 +237,35 @@ __device__ int* dev_arange(int start, int end){
     return res;
 }
 
-__global__ void compute_pointing(double* thetas, double* phi0, int* nphis, double* ringstarts, double* red, double* imd, double *pointings) {
+__global__ void compute_pointing(double* thetas, double* phi0, int* nphis, double* ringstarts, double* red, double* imd, int nrings, double *pointings) {
     //idx is nrings
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     double PI = 3.14159265359;
     if (idx <= nrings) {
-        int nrings = sizeof(thetas) / sizeof(thetas[0]);
         int ringstart = ringstarts[idx];
-        int* pixs = ring2pixs(ringstart, nphis[idx]);
-        int size_pixs = sizeof(pixs) / sizeof(pixs[0]);
-        if (size_pixs > 0) {
-            double* t_red = getelements(red, pixs);
-            double* i_imd = getelements(imd, pixs);
+        const int npixs = nphis[idx];
+        int* pixs = ring2pixs(ringstart, npixs);
+        
+        if (npixs > 0) {
+            double* t_red = getelements(red, pixs, npixs);
+            double* i_imd = getelements(imd, pixs, npixs);
 
-            double *phis[nphis[idx]];
-            for (int i = 0; i < nphis[idx]; i++) {
-                phis[i] = (phi0[idx] + i * (2. * PI / nphis[idx])) % (2. * PI);
+            double *phis = (double*)malloc(npixs * sizeof(double));
+            for (int i = 0; i < npixs; i++) {
+                phis[i] = fmod(phi0[idx] + i * (2. * PI / npixs),2. * PI);
             }
             //TODO implement this for correct offset
             // phis = phis//[pixs - self.geom.ofs[ir]]
-            double *thts[nphis[idx]] = {thetas[idx]};
-            double *buff = d2ang(t_red, i_imd, thts, phis, dev_gettriquand(thetas[idx]));
-            for (int i = 0; i < size_pixs; i++) {
-                int sli = idx * 2;
-                thtp_[idx] = buff[i];
-                phip_[idx] = buff[i + size_pixs];
+            double *thts = (double*)malloc(npixs * sizeof(double));
+            for (int i = 0; i < npixs; i++) {
+                thts[i] = thetas[idx];
             }
-            int sli[nphis[idx]] = dev_arange(ringstart, ringstart + nphis[idx]);
-            int size_sli = sizeof(sli) / sizeof(sli[0]);
-            for (int i = 0; i < size_sli; i++) {
+            double *buff = d2ang(t_red, i_imd, thts, phis, dev_gettriquand(thetas[idx]));
+            int *sli = dev_arange(ringstart, ringstart + npixs);
+            for (int i = 0; i < npixs; i++) {
                 int idx_  = sli[i];
                 pointings[idx + idx_] = buff[i];
-                pointings[idx + 1 + idx_ + size_pixs] = buff[i + size_pixs];
+                pointings[idx + 1 + idx_ + npixs] = buff[i + npixs];
                 // TODO implement this (rotation of the polarization angle)
                 // cot = np.cos(self.geom.theta[ir]) / np.sin(self.geom.theta[ir])
                 // d = np.sqrt(t_red ** 2 + i_imd ** 2)
@@ -362,7 +365,7 @@ extern "C" void pointing(double* thetas, double* phi0, int* nphis, double *rings
     // auto start = high_resolution_clock::now();
     // const int threadsPerBlock = 256;
     // const int blocksPerGrid = (lmax + threadsPerBlock - 1) / threadsPerBlock;
-    compute_pointing<<<1, nrings>>>(device_thetas, device_phi0, device_nphis, device_ringstarts, device_red, device_imd, device_result);
+    compute_pointing<<<1, nrings>>>(device_thetas, device_phi0, device_nphis, device_ringstarts, device_red, device_imd, nrings, device_result);
     cudaDeviceSynchronize();
     // auto stop = high_resolution_clock::now();
 
