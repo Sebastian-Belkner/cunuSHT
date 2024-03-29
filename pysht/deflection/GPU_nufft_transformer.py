@@ -151,34 +151,41 @@ class deflection:
     def pointing_GPU(self, synth_spin1_map):
         cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
         cuda_lib.pointing.argtypes = [
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_int),
             ctypes.POINTER(ctypes.c_int),
             ctypes.POINTER(ctypes.c_double),
             ctypes.POINTER(ctypes.c_double),
-            ctypes.POINTER(ctypes.c_double),
             ctypes.c_int,
-            ctypes.c_int
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_double),
         ]
         cuda_lib.pointing.restype = None
         
-        thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta, self.geom.phi0, self.geom.nph.astype(int), self.geom.ofs
-        npix = sum(nphis_)
-        nrings = thetas_.size
-        red_, imd_ = synth_spin1_map
+        thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta.astype(float), self.geom.phi0.astype(float), self.geom.nph.astype(int), self.geom.ofs.astype(int)
+        red_, imd_ = synth_spin1_map.astype(np.double)
+        npix_ = int(sum(nphis_))
+        nrings_ = int(nphis_.size)
         output_array_ = np.zeros(shape=synth_spin1_map.size, dtype=np.double)
-        # Convert Python lists to ctypes arrays
-        thetas = (ctypes.c_double * nrings)(*thetas_)
-        phi0 = (ctypes.c_double * nrings)(*phi0_)
-        nphis = (ctypes.c_int * nrings)(*nphis_)
-        ringstarts = (ctypes.c_double * ringstarts_.size)(*ringstarts_)
-        red = (ctypes.c_double * npix)(*red_)
-        imd = (ctypes.c_double * npix)(*imd_)
-        
+
+        thetas =        (ctypes.c_float * nrings_)(*thetas_)
+        phi0 =          (ctypes.c_float * nrings_)(*phi0_)
+        nphis =         (ctypes.c_int * nrings_)(*nphis_)
+        ringstarts =    (ctypes.c_int * nrings_)(*ringstarts_)
+        red =           (ctypes.c_double * npix_)(*red_)
+        imd =           (ctypes.c_double * npix_)(*imd_)
+        nrings =         ctypes.c_int(nrings_)
+        npix =           ctypes.c_int(npix_)
         output_array = (ctypes.c_double * output_array_.size)(*output_array_)
         
         cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
-        return np.array(output_array).reshape(synth_spin1_map.shape).T
+        # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        
+        ret = np.array(output_array, dtype=np.double)
+        print("done: max value = {}, shape = {}, snynthmapshape: {}".format(np.max(ret), ret.shape, synth_spin1_map.shape))
+        _ = ret.reshape(synth_spin1_map.shape).T
+        return _
     
 
     def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):

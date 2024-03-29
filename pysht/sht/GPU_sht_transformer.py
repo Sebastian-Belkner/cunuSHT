@@ -18,6 +18,7 @@ class GPU_SHTns_transformer():
         self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
+            # sht_reg_poles only this
             # self.constructor.set_grid(flags=shtns.sht_reg_dct + shtns.SHT_THETA_CONTIGUOUS)
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
         else:
@@ -29,7 +30,6 @@ class GPU_SHTns_transformer():
         assert 0, "implement if needed"
         self.constructor = shtns.sht(int(lmax), int(mmax))
         self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
-        
 
 
     @shape_decorator
