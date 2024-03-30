@@ -141,7 +141,7 @@ class deflection:
             d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
             self.timer.add('spin-1 maps')
             # Probably want to keep red, imd double precision for the calc?
-            if False:#HAS_DUCCPOINTING:
+            if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 # print("theta=", tht, "phi0=", phi0, "nphi=", nph, "ringstart=", ofs, "deflect=", d1.T, "calc_rotation=", calc_rotation, "nthreads=", self.nthreads)
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,

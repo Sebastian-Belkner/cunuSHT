@@ -60,7 +60,7 @@ for lmax in lmaxs:
                 # t.set_geometry(geominfo)
                 print("\n----Testing function gclm2lenmap...----")
                 print("\n----lmax: {}, epsilon: {}----".format(lmax, deflection_kwargs['epsilon']))
-                defres = t.gclm2lenmap(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, cc_transformer=tCAR, HAS_DUCCPOINTING=False, mode=1)
+                defres = t.gclm2lenmap(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, cc_transformer=tCAR, HAS_DUCCPOINTING=True, mode=1)
                 # FIXME after return, sometimes segmentation fault. Perhaps GPU not properly released
                 print(defres)
                 # print('\n{} gclm2lenmap() time is: {:.3f} ms'.format(backends[0], (t2-t1)*100))

@@ -102,7 +102,7 @@ class deflection:
             
             
         self.cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
-        self.cuda_lib.pointing.argtypes = [
+        self.cuda_lib.pointing_DUCC.argtypes = [
             ctypes.POINTER(ctypes.c_float),
             ctypes.POINTER(ctypes.c_float),
             ctypes.POINTER(ctypes.c_int),
@@ -113,7 +113,7 @@ class deflection:
             ctypes.c_int,
             ctypes.POINTER(ctypes.c_double),
         ]
-        self.cuda_lib.pointing.restype = None
+        self.cuda_lib.pointing_DUCC.restype = None
 
     # @profile
     def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=True, HAS_DUCCPOINTING=True):
@@ -166,7 +166,7 @@ class deflection:
 
     def pointing_GPU(self, synth_spin1_map):
         # print('+++++++++ Inside pointing GPU +++++++++')
-        
+        print('starting ctyping')
         thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta.astype(float), self.geom.phi0.astype(float), self.geom.nph.astype(int), self.geom.ofs.astype(int)
         red_, imd_ = synth_spin1_map.astype(np.double)
         npix_ = int(sum(nphis_))
@@ -182,8 +182,9 @@ class deflection:
         nrings =         ctypes.c_int(nrings_)
         npix =           ctypes.c_int(npix_)
         output_array = (ctypes.c_double * output_array_.size)(*output_array_)
+        print('done with ctyping')
         self.timer.add('get pointing - ctyping')
-        self.cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        self.cuda_lib.pointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         self.timer.add('get pointing - calc')
         # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         
