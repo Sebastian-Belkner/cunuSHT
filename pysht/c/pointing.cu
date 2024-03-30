@@ -6,6 +6,8 @@
 #include <chrono>
 #include <time.h>
 
+#include "pointing.h"
+#include "pointing.cuh"
 
 struct KernelParams {
     double *thetalocs;
@@ -27,7 +29,6 @@ struct KernelLocals {
     double *e_d, *e_t, *e_tp;
     double *d;
 };
-
 
 struct KernelLocalsDUCC {
     double sint;
@@ -238,6 +239,7 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
     }
 }
 
+
 bool allGreaterThanZero(double* array, int size) {
     for (int i = 0; i < size; i++) {
         if (array[i] <= 0.0) {
@@ -294,8 +296,7 @@ void float_to_double(const float* src, double* dest, int size) {
     }
 }
 
-
-extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstarts, double *red, double *imd, int nrings, int npix, double *host_result) {
+void CUpointing_lenspyx(float* thetas_, float* phi0_, int* nphis, int* ringstarts, double *red, double *imd, int nrings, int npix, double *host_result) {
     // printf("nrings: %d, npix: %d\nthetas: ", nrings, npix);
     // for (int i = 0; i < nrings; i+=32) {
     //     printf("%f ", thetas_[i]);
@@ -424,7 +425,7 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
 }
 
 
-extern "C" void pointing_DUCC(float* thetas_, float* phi0_, int* nphis, int* ringstarts, double *red, double *imd, int nrings, int npix, double *host_result) {
+void CUpointing_DUCC(float* thetas_, float* phi0_, int* nphis, int* ringstarts, double *red, double *imd, int nrings, int npix, double *host_result) {
     printf("starting allocation\n");
     clock_t start, stop;
     double cpu_time_used;

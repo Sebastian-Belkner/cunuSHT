@@ -12,6 +12,8 @@ import cupy as cp
 import healpy as hp
 import ctypes
 
+import pysht.build.pointing
+
 import pysht
 import line_profiler
 
@@ -101,19 +103,19 @@ class deflection:
             
             
             
-        self.cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
-        self.cuda_lib.pointing_DUCC.argtypes = [
-            ctypes.POINTER(ctypes.c_float),
-            ctypes.POINTER(ctypes.c_float),
-            ctypes.POINTER(ctypes.c_int),
-            ctypes.POINTER(ctypes.c_int),
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_double),
-        ]
-        self.cuda_lib.pointing_DUCC.restype = None
+        # self.cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
+        # self.cuda_lib.Cpointing_DUCC.argtypes = [
+        #     ctypes.POINTER(ctypes.c_float),
+        #     ctypes.POINTER(ctypes.c_float),
+        #     ctypes.POINTER(ctypes.c_int),
+        #     ctypes.POINTER(ctypes.c_int),
+        #     ctypes.POINTER(ctypes.c_double),
+        #     ctypes.POINTER(ctypes.c_double),
+        #     ctypes.c_int,
+        #     ctypes.c_int,
+        #     ctypes.POINTER(ctypes.c_double),
+        # ]
+        # self.cuda_lib.Cpointing_DUCC.restype = None
 
     # @profile
     def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=True, HAS_DUCCPOINTING=True):
@@ -173,18 +175,25 @@ class deflection:
         nrings_ = int(nphis_.size)
         output_array_ = np.zeros(shape=synth_spin1_map.size, dtype=np.double)
         self.timer.add('get pointing - data grab')
-        thetas =        (ctypes.c_float * nrings_)(*thetas_)
-        phi0 =          (ctypes.c_float * nrings_)(*phi0_)
-        nphis =         (ctypes.c_int * nrings_)(*nphis_)
-        ringstarts =    (ctypes.c_int * nrings_)(*ringstarts_)
-        red =           (ctypes.c_double * npix_)(*red_)
-        imd =           (ctypes.c_double * npix_)(*imd_)
-        nrings =         ctypes.c_int(nrings_)
-        npix =           ctypes.c_int(npix_)
-        output_array = (ctypes.c_double * output_array_.size)(*output_array_)
-        print('done with ctyping')
+        # thetas =        (ctypes.c_float * nrings_)(*thetas_)
+        # phi0 =          (ctypes.c_float * nrings_)(*phi0_)
+        # nphis =         (ctypes.c_int * nrings_)(*nphis_)
+        # ringstarts =    (ctypes.c_int * nrings_)(*ringstarts_)
+        # red =           (ctypes.c_double * npix_)(*red_)
+        # imd =           (ctypes.c_double * npix_)(*imd_)
+        # nrings =         ctypes.c_int(nrings_)
+        # npix =           ctypes.c_int(npix_)
+        # output_array = (ctypes.c_double * output_array_.size)(*output_array_)
+        # print('done with ctyping')
+        thetas, phi0, nphis, ringstarts = thetas_, phi0_, nphis_, ringstarts_
+        red, imd = red_, imd_
+        npix = npix_
+        nrings = nrings_
+        output_array = output_array_
+        
         self.timer.add('get pointing - ctyping')
-        self.cuda_lib.pointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        # self.cuda_lib.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        pointing.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         self.timer.add('get pointing - calc')
         # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         
