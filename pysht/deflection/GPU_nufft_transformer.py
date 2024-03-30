@@ -1,10 +1,10 @@
 import numpy as np
-
+import os
 from lenspyx.utils_hp import Alm
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.utils import timer, blm_gauss
 from lenspyx.remapping.utils_angles import d2ang
-from lenspyx import cachers
+from pysht import cacher
 
 import ducc0
 import cufinufft
@@ -59,7 +59,7 @@ try:
     import skcuda.fft as cu_fft
     from pycuda import gpuarray
     import pycuda.autoinit
-    HAS_CUFFT = True
+    HAS_CUFFT = False
     print('Successfully imported skcuda.fft')
 except:
     print("Could not import skcuda.fft")
@@ -72,14 +72,14 @@ def ducc_sht_mode(gclm, spin):
 
 
 class deflection:
-    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-7, verbosity=0, single_prec=True, planned=False, nthreads=4):
+    def __init__(self, dlm, mmax_dlm:int or None, geom, epsilon=1e-7, verbosity=0, single_prec=True, planned=False, nthreads=10):
         self.single_prec = single_prec
         self.verbosity = 1
         self.tim = timer(verbose=self.verbosity)
         self.nthreads = nthreads
         self.planned = False
         self._cis = False
-        self.cacher = cachers.cacher_mem()
+        self.cacher = cacher.cacher_mem()
         self.epsilon = epsilon
         
         dlm = np.atleast_2d(dlm)
@@ -98,9 +98,25 @@ class deflection:
             print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
         elif self.verbosity:
             print('deflection std is %.2e amin' % sig_d_amin)
+            
+            
+            
+        self.cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
+        self.cuda_lib.pointing.argtypes = [
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_double),
+        ]
+        self.cuda_lib.pointing.restype = None
 
     # @profile
-    def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=False, HAS_DUCCPOINTING=True):
+    def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=True, HAS_DUCCPOINTING=True):
         """Builds deflected positions and angles
             Returns (npix, 3) array with new tht, phi and -gamma
         """
@@ -118,7 +134,7 @@ class deflection:
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
                 else:
                     self.cacher.cache(fns[0], tht_phip_gamma)
-                # return
+                return
             print('Calculating pointing angles using lenspyx')
             npix = self.geom.npix()
             thp_phip_gamma = np.empty((3, npix), dtype=float)  # (-1) gamma in last arguement
@@ -149,26 +165,14 @@ class deflection:
 
 
     def pointing_GPU(self, synth_spin1_map):
-        cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
-        cuda_lib.pointing.argtypes = [
-            ctypes.POINTER(ctypes.c_float),
-            ctypes.POINTER(ctypes.c_float),
-            ctypes.POINTER(ctypes.c_int),
-            ctypes.POINTER(ctypes.c_int),
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.POINTER(ctypes.c_double),
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.POINTER(ctypes.c_double),
-        ]
-        cuda_lib.pointing.restype = None
+        # print('+++++++++ Inside pointing GPU +++++++++')
         
         thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta.astype(float), self.geom.phi0.astype(float), self.geom.nph.astype(int), self.geom.ofs.astype(int)
         red_, imd_ = synth_spin1_map.astype(np.double)
         npix_ = int(sum(nphis_))
         nrings_ = int(nphis_.size)
         output_array_ = np.zeros(shape=synth_spin1_map.size, dtype=np.double)
-
+        self.timer.add('get pointing - data grab')
         thetas =        (ctypes.c_float * nrings_)(*thetas_)
         phi0 =          (ctypes.c_float * nrings_)(*phi0_)
         nphis =         (ctypes.c_int * nrings_)(*nphis_)
@@ -178,17 +182,19 @@ class deflection:
         nrings =         ctypes.c_int(nrings_)
         npix =           ctypes.c_int(npix_)
         output_array = (ctypes.c_double * output_array_.size)(*output_array_)
-        
-        cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        self.timer.add('get pointing - ctyping')
+        self.cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        self.timer.add('get pointing - calc')
         # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         
         ret = np.array(output_array, dtype=np.double)
-        print("done: max value = {}, shape = {}, snynthmapshape: {}".format(np.max(ret), ret.shape, synth_spin1_map.shape))
+        # print("done: max value = {}, shape = {}, snynthmapshape: {}".format(np.max(ret), ret.shape, synth_spin1_map.shape))
         _ = ret.reshape(synth_spin1_map.shape).T
+        self.cacher.cache('ptg', _)
         return _
     
 
-    def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cachers.cacher or None=None):
+    def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cacher.cacher or None=None):
         assert len(dlm) == 2, (len(dlm), 'gradient and curl mode (curl can be none)')
         self.dlm = dlm
         self.mmax_dlm = mmax_dlm
@@ -273,7 +279,7 @@ class GPU_cufinufft_transformer(deflection):
                 ntheta = lmax+1
                 nphihalf = lmax+1
                 nphi = 2 * nphihalf
-            # self.timer.add('setup')
+            self.timer.add('setup')
             return gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug
         
         @shape_decorator
@@ -286,7 +292,7 @@ class GPU_cufinufft_transformer(deflection):
                 _type_: _description_
             """
             # shtns cc_transformer returns theta contiguous 1d array
-            map = cc_transformer.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4)
+            map = cc_transformer.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
             
             # the double .T are only needed to get the added dimension as the leading dimension
             if cc_transformer.theta_contiguous:
@@ -359,13 +365,14 @@ class GPU_cufinufft_transformer(deflection):
             ptg = None
             if ptg is None:
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
-                # TODO Port this to GPU
+                self.timer.add('spin-1 maps')
                 if True:
                     ptg = self.pointing_GPU(synth_spin1_map)
+                    ptg = self.cacher.load('ptg')
                 else:
                     self._build_angles(synth_spin1_map, mmax, mmax, HAS_DUCCPOINTING=HAS_DUCCPOINTING) if not self._cis else self._build_angleseig()
-                    ptg = self.cacher.load('pointing')
-            self.timer.add('get pointing')
+                    ptg = self.cacher.load('ptg')
+            # self.timer.add('get pointing')
             if debug:
                 ret.append(np.copy(ptg))
             return ptg
@@ -407,10 +414,9 @@ class GPU_cufinufft_transformer(deflection):
             self.timer.add('rotation')
         if debug:
             ret.append(np.copy(deflectedmap.real.flatten())) 
-        print(' ------------ Finished rotation -------------')
         
         if timing:
-            self.timer.dumpjson('/mnt/home/sbelkner/git/pySHT/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
         if debug:
             return ret
         else:
@@ -519,13 +525,13 @@ class GPU_cufinufft_transformer(deflection):
         ll = np.arange(0,lmax_dlm+1,1)
         if self.shttransformer_desc == 'shtns':
             if dclm is None:
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
             else:
                 assert 0, "implement if needed, not sure if this is possible with SHTns"
                 dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
                 dgclm[0] = dlm
                 dgclm[1] = dclm
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
             return self.flip_tpg_2d(synth_spin1_map)
         elif self.shttransformer_desc == 'pysht':
             assert 0, "implement if needed"

@@ -1,16 +1,18 @@
 import numpy as np
-
+import os
 import healpy as hp
 
 import line_profiler
 
+import pysht
 from lenspyx.remapping import deflection as lenspyx_deflection
 from lenspyx.utils_hp import Alm
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.utils import timer, blm_gauss
 from lenspyx.remapping.utils_angles import d2ang
-from lenspyx import cachers
 
+
+from pysht import cacher
 import ducc0
 import finufft
 
@@ -53,13 +55,13 @@ def ducc_sht_mode(gclm, spin):
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
 
 class deflection:
-    def __init__(self, dlm, mmax_dlm:int or None, geom, dclm:np.ndarray or None=None, epsilon=1e-5, verbosity=0, nthreads=4, single_prec=True, planned=False):
+    def __init__(self, dlm, mmax_dlm:int or None, geom, dclm:np.ndarray or None=None, epsilon=1e-5, verbosity=0, nthreads=10, single_prec=True, planned=False):
         self.single_prec = single_prec
         self.verbosity = verbosity
         self.tim = timer(verbose=self.verbosity)
         self.planned = False
         self._cis = False
-        self.cacher = cachers.cacher_mem()
+        self.cacher = cacher.cacher_mem()
         self.epsilon = epsilon
         self.nthreads=nthreads
         
@@ -101,7 +103,7 @@ class deflection:
         ll = np.arange(0,lmax_dlm+1,1)
         if self.shttransformer_desc == 'shtns':
             if dclm is None:
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
                 
             else:
                 assert 0, "implement if needed, not sure if this is possible with SHTns"
@@ -109,7 +111,7 @@ class deflection:
                 dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
                 dgclm[0] = dlm
                 dgclm[1] = dclm
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=4)
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
             return self.flip_tpg_2d(synth_spin1_map)
         elif self.shttransformer_desc == 'ducc':
             if dclm is None:
@@ -137,8 +139,9 @@ class deflection:
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]) :
             d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
+            self.timer.add('spin-1 maps')
             # Probably want to keep red, imd double precision for the calc?
-            if HAS_DUCCPOINTING:
+            if False:#HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 # print("theta=", tht, "phi0=", phi0, "nphi=", nph, "ringstart=", ofs, "deflect=", d1.T, "calc_rotation=", calc_rotation, "nthreads=", self.nthreads)
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
@@ -148,34 +151,18 @@ class deflection:
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
                 else:
                     self.cacher.cache(fns[0], tht_phip_gamma)
-                # print('build_angles')
                 return
-            npix = self.npix
-            if fortran and HAS_FORTRAN:
-                red, imd = d1
-                tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
-                if self.single_prec_ptg:
-                    thp_phip_gamma = fremap.fpointing(red, imd, tht, phi0, nph, ofs, self.nthreads)
-                else:
-                    thp_phip_gamma = fremap.pointing(red, imd, tht, phi0, nph, ofs, self.nthreads)
-                # print('build angles <- th-phi-gm (ftn)')
-                # I think this just trivially turns the F-array into a C-contiguous array:
-                self.cacher.cache(fns[0], thp_phip_gamma.transpose()[:, 0:2])
-                if calc_rotation:
-                    self.cacher.cache(fns[1], thp_phip_gamma.transpose()[:, 2] if not self.single_prec else thp_phip_gamma.transpose()[:, 2].astype(np.float32))
-                return
-            elif fortran and not HAS_FORTRAN:
-                print('Cant use fortran pointing building since import failed. Falling back on python impl.')
+            npix = self.geom.npix()
             thp_phip_gamma = np.empty((3, npix), dtype=float)  # (-1) gamma in last arguement
             startpix = 0
             assert np.all(self.geom.theta > 0.) and np.all(self.geom.theta < np.pi), 'fix this (cotangent below)'
             red, imd = d1
             for ir in np.argsort(self.geom.ofs): # We must follow the ordering of scarf position-space map
-                pixs = Geom.rings2pix(self, [ir])
+                pixs = Geom.rings2pix(self.geom, [ir])
                 if pixs.size > 0:
                     t_red = red[pixs]
                     i_imd = imd[pixs]
-                    phis = Geom.phis(self, ir)[pixs - self.geom.ofs[ir]]
+                    phis = Geom.phis(self.geom, ir)[pixs - self.geom.ofs[ir]]
                     assert phis.size == pixs.size, (phis.size, pixs.size)
                     thts = self.geom.theta[ir] * np.ones(pixs.size)
                     thtp_, phip_ = d2ang(t_red, i_imd, thts , phis, int(np.round(np.cos(self.geom.theta[ir]))))
@@ -276,12 +263,10 @@ class CPU_finufft_transformer(deflection):
         
         ### SYNTHESIS CC GEOMETRY ###
         mode = ducc_sht_mode(gclm, spin)
-        print("gclm.shape: ", gclm.shape)
         map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi, spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
         self.timer.add('synthesis')
         if debug:
             ret.append(np.copy(map))
-        print("map.shape: ", map.shape)
         
         map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
         if spin == 0:
@@ -310,7 +295,6 @@ class CPU_finufft_transformer(deflection):
         self.timer.add('c2c')
         if debug:
             ret.append(np.copy(map_dfs))
-        print('map_dfs.shape: ', map_dfs.shape)
         
         if self.planned: # planned nufft
             assert ptg is None
@@ -456,6 +440,7 @@ class CPU_finufft_transformer(deflection):
 
 class CPU_DUCCnufft_transformer(deflection):
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
+        self.backend = 'CPU'
         self.shttransformer_desc = shttransformer_desc
         if shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
@@ -492,8 +477,9 @@ class CPU_DUCCnufft_transformer(deflection):
                 spin: spin (>=0) of the transform
                 backwards: forward or backward (adjoint) operation
         """ 
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('gclm2lenmap()')
         ret = []
-        
         s2_d = np.sum(alm2cl(dlm, dlm, lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
         sig_d = np.sqrt(s2_d / self.geom.fsky())
         sig_d_amin = sig_d / np.pi * 180 * 60
@@ -532,16 +518,13 @@ class CPU_DUCCnufft_transformer(deflection):
                 ntheta = lmax+1
                 nphihalf = lmax+1
                 nphi = 2 * nphihalf
-            # self.timer.add('setup')
+            self.timer.add('setup')
             return gclm, lmax, lmax_unl, mmax, ntheta, nphihalf, nphi, timing, debug   
          
         gclm, lmax, lmax_unl, mmax, ntheta, nphihalf, nphi, timing, debug = _setup(gclm, lmax, mmax, mode)
-        
-        
 
-        mode = ducc_sht_mode(gclm, spin)
-        map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi,
-                                spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
+        map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi, spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=ducc_sht_mode(gclm, spin))
+        self.timer.add('synthesis')
         if debug:
             ret.append(np.copy(map))
             
@@ -559,6 +542,7 @@ class CPU_DUCCnufft_transformer(deflection):
         map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
         if (spin % 2) != 0:
             map_dfs[ntheta:, :] *= -1
+        self.timer.add('doubling')
         if debug:
             ret.append(np.copy(map_dfs))
 
@@ -570,6 +554,7 @@ class CPU_DUCCnufft_transformer(deflection):
             del tmp
         else:
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
+        self.timer.add('c2c')
         if debug:
             ret.append(np.copy(map_dfs))
             
@@ -583,11 +568,12 @@ class CPU_DUCCnufft_transformer(deflection):
             ptg = None
             if ptg is None:
                 ptg = self._get_ptg(dlm, mmax)
-            self.tim.add('get ptg')
+                ptg = self.cacher.load('ptg')
+            self.timer.add('get pointing')
             if debug:
                 ret.append(np.copy(ptg))
-                
             values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=False, epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
+            self.timer.add('nuFFT')
             self.tim.add('u2nu')
         if debug:
             ret.append(np.copy(values.real))
@@ -597,19 +583,19 @@ class CPU_DUCCnufft_transformer(deflection):
                 cis = self._get_cischi()
                 for i in range(polrot * abs(spin)):
                     values *= cis
-                self.tim.add('polrot (cis)')
             else:
                 if HAS_DUCCROTATE:
                     lensing_rotate(values, self._get_gamma(), spin, nthreads)
-                    self.tim.add('polrot (ducc)')
                 else:
                     func = fremap.apply_inplace if values.dtype == np.complex128 else fremap.apply_inplacef
                     func(values, self._get_gamma(), spin, nthreads)
-                    self.tim.add('polrot (fortran)')
+        self.timer.add('rotation')
+        if timing:
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/CPU_duccnufft_{}'.format(lmax))
         if debug:
             return ret
         else:
-            return values.real() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
+            return values.real if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):

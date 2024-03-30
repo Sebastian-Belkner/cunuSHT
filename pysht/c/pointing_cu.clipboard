@@ -1,0 +1,11 @@
+__device__ void ring2pixs(int ringstart, int npixs, int* pixs) {
+    for (int i = 0; i < npixs; i++) {
+        pixs[i] = ringstart + i;
+    }
+}
+
+__device__ void getelements(double* arr, int* indices, const int size_indices, double* result){
+    for (int i = 0; i < size_indices; i++) {
+        result[i] = arr[indices[i]];
+    }
+}

@@ -39,7 +39,7 @@ __device__ void dev_besselj0(double* x, const int start, const int size, double*
     for (int i = start; i < size; i++) { 
         factorial = 1.0;
         power = 1.0;
-        for (int k = 1; k < 75; k++) {
+        for (int k = 1; k < 25; k++) {
             factorial *= k;
             power *= (x[i] / 2.0) * (x[i] / 2.0);
             term = power / (factorial * factorial);
@@ -51,7 +51,7 @@ __device__ void dev_besselj0(double* x, const int start, const int size, double*
 __device__ void sindod_m1(double* d, int start, int size, double* result){
     for (int i = start; i < size; i++) {
         // np.poly1d([ -1. / 5040., 1. / 120. -1 / 6.])(d2)
-        result[i] = 1. + (-1./6. * dev_power_element(d[i],2) + 1./120. * dev_power_element(d[i],4) - 1./5040. * dev_power_element(d[i],6));
+        result[i] = 1. + (-1./6. * d[i]*d[i] + 1./120. * d[i]*d[i]*d[i]*d[i] - 1./5040. * d[i]*d[i]*d[i]*d[i]*d[i]*d[i]);
     }
 }
 
@@ -115,36 +115,33 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
             sindod_m1(kl.d, ringstart, ringstart+npixring, kl.sind_d);
         }
         if (triquand == 0){ // #---'close' to equator, where cost ~ 0 
-            if (cos(kp.thetalocs[idx]) > 0.8) {
-                printf("wrong localization: %f\n", cos(kp.thetalocs[idx]));
-            }
             for (int i = ringstart; i < ringstart+npixring; i++) {
-                kl.dphi[i] = asin(kp.imd[i] / sqrt(1. - dev_power_element(cos(kp.thetalocs[idx]),2)) * kl.sind_d[i]);
-                kl.thtp[i] = acos(cos(kp.thetalocs[idx]) * cos(kl.d[i]) - kp.red[i] * kl.sind_d[i] * sqrt(1. - dev_power_element(cos(kp.thetalocs[idx]),2)));
+                kl.dphi[i] = asin(kp.imd[i] / sqrt(1. - cos(kp.thetalocs[idx])*cos(kp.thetalocs[idx])) * kl.sind_d[i]);
+                kl.thtp[i] = acos(cos(kp.thetalocs[idx]) * cos(kl.d[i]) - kp.red[i] * kl.sind_d[i] * sqrt(1. - cos(kp.thetalocs[idx])*cos(kp.thetalocs[idx])));
             }
         } else {
             int isnorth = triquand == 1 ? 1 : 0;
-            for (int i = ringstart; i < ringstart+npixring; i++) {
-                if (isnorth == 1){
-                    kl.e_t[i] = 2. * dev_power_element(sin(kp.thetalocs[idx] * 0.5),2);
-                } else {
-                    kl.e_t[i] = 2. * dev_power_element(cos(kp.thetalocs[idx] * 0.5),2);
+            if (isnorth == 1){
+                for (int i = ringstart; i < ringstart+npixring; i++) {
+                    kl.e_t[i] = 2. * sin(kp.thetalocs[idx] * 0.5)*sin(kp.thetalocs[idx] * 0.5);
                 }
-                kl.e_d[i] = 2. * dev_power_element(sin(kl.d[i] * 0.5),2);
+            } else {
+                for (int i = ringstart; i < ringstart+npixring; i++) {
+                    kl.e_t[i] = 2. * cos(kp.thetalocs[idx] * 0.5)*cos(kp.thetalocs[idx] * 0.5);
+                }
+            }
+            for (int i = ringstart; i < ringstart+npixring; i++) {
+                kl.e_d[i] = 2. * sin(kl.d[i] * 0.5)*sin(kl.d[i] * 0.5);
                 kl.e_tp[i] = kl.e_t[i] + kl.e_d[i] - kl.e_t[i] * kl.e_d[i] + (double)triquand * kp.red[i] * kl.sind_d[i] * sin(kp.thetalocs[idx]);
                 kl.thtp[i] = asin(sqrt(max(kl.e_tp[i] * (2. - kl.e_tp[i]), 0.)));
             }
             if (isnorth == 1){
-                //assert np.max(tht) < np.pi * 0.4, ('wrong localization', np.max(tht)); //# -- for the arcsin at the end
                 for (int i = ringstart; i < ringstart+npixring; i++) {
-                    // kl.dphi[i] = atan2((1. - kl.e_d[i]) * sin(kp.thetalocs[idx]) + kp.red[i] * kl.sind_d[i] * (1. - kl.e_t[i]), kp.imd[i] * kl.sind_d[i]);
                     kl.dphi[i] = atan2(kp.imd[i] * kl.sind_d[i], (1. - kl.e_d[i]) * sin(kp.thetalocs[idx]) + kp.red[i] * kl.sind_d[i] * (1. - kl.e_t[i])); // TODO possible x/y confusion
                 }
             } else {
-                //assert np.min(tht) > np.pi * 0.4, ('wrong localization', np.min(tht)); //# -- for the arcsin at the end
                 for (int i = ringstart; i < ringstart+npixring; i++) {
                     kl.thtp[i] = PI - kl.thtp[i];
-                    // kl.dphi[i] = atan2((1. - kl.e_d[i]) * sin(kp.thetalocs[idx]) + kp.red[i] * kl.sind_d[i] * (kl.e_t[i] - 1.), kp.imd[i] * kl.sind_d[i]);
                     kl.dphi[i] = atan2(kp.imd[i] * kl.sind_d[i], (1. - kl.e_d[i]) * sin(kp.thetalocs[idx]) + kp.red[i] * kl.sind_d[i] * (kl.e_t[i] - 1.)); // TODO possible x/y confusion
                 }
             }
@@ -152,7 +149,6 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
         for (int i = ringstart; i < ringstart+npixring; i++) {
             kl.dphi[i] = fmod(kp.philocs[i] + kl.dphi[i], 2. * PI);
         }
-        // __syncthreads();
         for (int i = ringstart; i < ringstart+npixring; i++) {
             pointings[i] = kl.thtp[i];
             pointings[i + kp.npix] = kl.dphi[i];
@@ -222,25 +218,25 @@ void float_to_double(const float* src, double* dest, int size) {
 
 
 extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstarts, double *red, double *imd, int nrings, int npix, double *host_result) {
-    printf("nrings: %d, npix: %d\nthetas: ", nrings, npix);
-    for (int i = 0; i < nrings; i+=32) {
-        printf("%f ", thetas_[i]);
-    }printf("\nphi0: ");
-    for (int i = 0; i < nrings; i+=32) {
-        printf("%f ", phi0_[i]);
-    }printf("\nnphis: ");
-    for (int i = 0; i < nrings; i+=32) {
-        printf("%d ", nphis[i]);
-    }printf("\nringstarts: ");
-    for (int i = 0; i < nrings; i+=32) {
-        printf("%d ", ringstarts[i]);
-    }printf("\nred: ");
-    for (int i = 0; i < npix; i+=100000) {
-        printf("%f ", red[i]);
-    }printf("\nimd: ");
-    for (int i = 0; i < npix; i+=100000) {
-        printf("%f ", imd[i]);
-    }printf("\n");
+    // printf("nrings: %d, npix: %d\nthetas: ", nrings, npix);
+    // for (int i = 0; i < nrings; i+=32) {
+    //     printf("%f ", thetas_[i]);
+    // }printf("\nphi0: ");
+    // for (int i = 0; i < nrings; i+=32) {
+    //     printf("%f ", phi0_[i]);
+    // }printf("\nnphis: ");
+    // for (int i = 0; i < nrings; i+=32) {
+    //     printf("%d ", nphis[i]);
+    // }printf("\nringstarts: ");
+    // for (int i = 0; i < nrings; i+=32) {
+    //     printf("%d ", ringstarts[i]);
+    // }printf("\nred: ");
+    // for (int i = 0; i < npix; i+=100000) {
+    //     printf("%f ", red[i]);
+    // }printf("\nimd: ");
+    // for (int i = 0; i < npix; i+=100000) {
+    //     printf("%f ", imd[i]);
+    // }printf("\n");
 
     double *thetas = (double*)malloc(nrings * sizeof(double));
     double *phi0 = (double*)malloc(nrings * sizeof(double));
@@ -248,14 +244,12 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
     float_to_double(thetas_, thetas, nrings);
 
 
-    bool condition1 = allGreaterThanZero(thetas, nrings);
-    bool condition2 = allLessThanPi(thetas, nrings);
+    // bool condition1 = allGreaterThanZero(thetas, nrings);
+    // bool condition2 = allLessThanPi(thetas, nrings);
 
-    printf("condition1: %d\n", condition1);
-    printf("condition2: %d\n", condition2);
-    assert(condition1 && condition2);
-
-    int* sorted_ringstarts = argsort(ringstarts, nrings);
+    // printf("condition1: %d\n", condition1);
+    // printf("condition2: %d\n", condition2);
+    // assert(condition1 && condition2);
 
     KernelParams params;
     double *device_thetalocs, *device_phi0, *device_red, *device_imd, *device_philocs;
@@ -289,6 +283,7 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
 
     KernelLocals locals;
     double *device_sind_d, *device_dphi, *device_thtp, *device_e_d, *device_e_t, *device_e_tp, *device_d;
+
     cudaMalloc((void**)&device_sind_d, npix * sizeof(double));
     cudaMalloc((void**)&device_dphi, npix * sizeof(double));
     cudaMalloc((void**)&device_thtp, npix * sizeof(double));
@@ -296,15 +291,6 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
     cudaMalloc((void**)&device_e_t, npix * sizeof(double));
     cudaMalloc((void**)&device_e_tp, npix * sizeof(double));
     cudaMalloc((void**)&device_d, npix * sizeof(double));
-
-    cudaMemset(device_sind_d, 0, npix * sizeof(double));
-    cudaMemset(device_dphi, 0, npix * sizeof(double));
-    cudaMemset(device_thtp, 0, npix * sizeof(double));
-    cudaMemset(device_e_d, 0, npix * sizeof(double));
-    cudaMemset(device_e_t, 0, npix * sizeof(double));
-    cudaMemset(device_e_tp, 0, npix * sizeof(double));
-    cudaMemset(device_d, 0, npix * sizeof(double));
-
 
     locals.sind_d = device_sind_d;
     locals.dphi = device_dphi;
@@ -319,24 +305,27 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
 
     const int threadsPerBlock = 256;
     int blocksPerGrid = (nrings + threadsPerBlock - 1) / threadsPerBlock;
+    printf("Calling kernel\n ");
     compute_pointing<<<blocksPerGrid, threadsPerBlock>>>(params, locals, device_result);
     cudaDeviceSynchronize();
+    printf("Done with kernel\n ");
     cudaMemcpy(host_result, device_result, 2*npix * sizeof(double), cudaMemcpyDeviceToHost);
+    printf("Done grabbing\n ");
 
-    cudaError_t errSync  = cudaGetLastError();
-    cudaError_t errAsync = cudaDeviceSynchronize();
-    if (errSync != cudaSuccess) 
-    printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
-    if (errAsync != cudaSuccess)
-    printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+    // cudaError_t errSync  = cudaGetLastError();
+    // cudaError_t errAsync = cudaDeviceSynchronize();
+    // if (errSync != cudaSuccess) 
+    // printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+    // if (errAsync != cudaSuccess)
+    // printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 
-    printf("\npointing theta: ");
-    for (int i = npix-1000; i < npix; i+=1) {
-        printf("%.2f ", host_result[i]);
-    }printf("\npointing phi: ");
-   for (int i = 2*npix-1000; i < 2*npix; i+=1) {
-        printf("%.2f ", host_result[i]);
-    }printf("\n");
+//     printf("\npointing theta: ");
+//     for (int i = npix-1000; i < npix; i+=1) {
+//         printf("%.2f ", host_result[i]);
+//     }printf("\npointing phi: ");
+//    for (int i = 2*npix-1000; i < 2*npix; i+=1) {
+//         printf("%.2f ", host_result[i]);
+//     }printf("\n");
 
     cudaFree(device_thetalocs);
     cudaFree(device_phi0);
@@ -354,5 +343,4 @@ extern "C" void pointing(float* thetas_, float* phi0_, int* nphis, int* ringstar
     cudaFree(device_d);
     free(thetas);
     free(phi0);
-    free(sorted_ringstarts);
 }
