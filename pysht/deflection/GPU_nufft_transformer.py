@@ -12,7 +12,9 @@ import cupy as cp
 import healpy as hp
 import ctypes
 
-import pysht.build.pointing
+import sys
+sys.path.append('/mnt/home/sbelkner/git/pySHT/build')
+import popy
 
 import pysht
 import line_profiler
@@ -193,7 +195,7 @@ class deflection:
         
         self.timer.add('get pointing - ctyping')
         # self.cuda_lib.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
-        pointing.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        popy.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         self.timer.add('get pointing - calc')
         # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
         

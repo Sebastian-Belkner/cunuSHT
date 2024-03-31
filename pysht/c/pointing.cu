@@ -6,7 +6,6 @@
 #include <chrono>
 #include <time.h>
 
-#include "pointing.h"
 #include "pointing.cuh"
 
 struct KernelParams {

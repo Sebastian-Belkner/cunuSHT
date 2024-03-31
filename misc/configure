@@ -4,6 +4,9 @@ nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 
 nvcc  -o pointing.so -shared -Xcompiler -fPIC pointing.cu
 
+nvcc  -o pointing.so -shared -Xcompiler -fPIC pointing.cpp pointing.cu
+nvcc  -o pysht/c/pointing.so -shared -Xcompiler -fPIC pysht/c/pointing.cpp pysht/c/pointing.cu
+
 srun python3 -m notebook --port=1234 --ip=$hostname
 
 
