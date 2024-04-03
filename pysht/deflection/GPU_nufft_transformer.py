@@ -13,8 +13,10 @@ import healpy as hp
 import ctypes
 
 import sys
-sys.path.append('/mnt/home/sbelkner/git/pySHT/build')
+
+sys.path.append('/mnt/home/sbelkner/git/pySHT/build') # FIXME need this to add compiled library to path so popy can be imported
 import popy
+# import dopy
 
 import pysht
 import line_profiler
@@ -61,9 +63,12 @@ except:
     
 try: 
     import skcuda.fft as cu_fft
+    import pycuda
     from pycuda import gpuarray
     import pycuda.autoinit
-    HAS_CUFFT = False
+    # import pycuda.driver as cuda
+    # cuda.init() 
+    HAS_CUFFT = True
     print('Successfully imported skcuda.fft')
 except:
     print("Could not import skcuda.fft")
@@ -102,22 +107,6 @@ class deflection:
             print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
         elif self.verbosity:
             print('deflection std is %.2e amin' % sig_d_amin)
-            
-            
-            
-        # self.cuda_lib = ctypes.CDLL('/mnt/home/sbelkner/git/pySHT/pysht/c/pointing.so')
-        # self.cuda_lib.Cpointing_DUCC.argtypes = [
-        #     ctypes.POINTER(ctypes.c_float),
-        #     ctypes.POINTER(ctypes.c_float),
-        #     ctypes.POINTER(ctypes.c_int),
-        #     ctypes.POINTER(ctypes.c_int),
-        #     ctypes.POINTER(ctypes.c_double),
-        #     ctypes.POINTER(ctypes.c_double),
-        #     ctypes.c_int,
-        #     ctypes.c_int,
-        #     ctypes.POINTER(ctypes.c_double),
-        # ]
-        # self.cuda_lib.Cpointing_DUCC.restype = None
 
     # @profile
     def _build_angles(self, synth_spin1_map, lmax_dlm, mmax_dlm, calc_rotation=True, HAS_DUCCPOINTING=True):
@@ -170,40 +159,27 @@ class deflection:
 
     def pointing_GPU(self, synth_spin1_map):
         # print('+++++++++ Inside pointing GPU +++++++++')
-        print('starting ctyping')
         thetas_, phi0_, nphis_, ringstarts_ = self.geom.theta.astype(float), self.geom.phi0.astype(float), self.geom.nph.astype(int), self.geom.ofs.astype(int)
         red_, imd_ = synth_spin1_map.astype(np.double)
         npix_ = int(sum(nphis_))
         nrings_ = int(nphis_.size)
         output_array_ = np.zeros(shape=synth_spin1_map.size, dtype=np.double)
-        self.timer.add('get pointing - data grab')
-        # thetas =        (ctypes.c_float * nrings_)(*thetas_)
-        # phi0 =          (ctypes.c_float * nrings_)(*phi0_)
-        # nphis =         (ctypes.c_int * nrings_)(*nphis_)
-        # ringstarts =    (ctypes.c_int * nrings_)(*ringstarts_)
-        # red =           (ctypes.c_double * npix_)(*red_)
-        # imd =           (ctypes.c_double * npix_)(*imd_)
-        # nrings =         ctypes.c_int(nrings_)
-        # npix =           ctypes.c_int(npix_)
-        # output_array = (ctypes.c_double * output_array_.size)(*output_array_)
-        # print('done with ctyping')
         thetas, phi0, nphis, ringstarts = thetas_, phi0_, nphis_, ringstarts_
         red, imd = red_, imd_
         npix = npix_
         nrings = nrings_
         output_array = output_array_
         
-        self.timer.add('get pointing - ctyping')
-        # self.cuda_lib.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
-        popy.Cpointing_DUCC(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
-        self.timer.add('get pointing - calc')
-        # cuda_lib.pointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        self.timer.add('get pointing - data grab')
+        popy.Cpointing(thetas, phi0, nphis, ringstarts, red, imd, nrings, npix, output_array)
+        self.timer.add('get pointing - calc and transfer<->')
         
         ret = np.array(output_array, dtype=np.double)
-        # print("done: max value = {}, shape = {}, snynthmapshape: {}".format(np.max(ret), ret.shape, synth_spin1_map.shape))
+        print("done: max value = {}, shape = {}, snynthmapshape: {}".format(np.max(ret), ret.shape, synth_spin1_map.shape))
         _ = ret.reshape(synth_spin1_map.shape).T
         self.cacher.cache('ptg', _)
         return _
+        # return output_array
     
 
     def change_dlm(self, dlm:list or np.ndarray, mmax_dlm:int or None, cacher:cacher.cacher or None=None):
@@ -311,7 +287,7 @@ class GPU_cufinufft_transformer(deflection):
                 map = np.atleast_3d(map.reshape(-1, lmax+1)).T
             else:
                 map = np.atleast_3d(map.reshape(lmax+1,-1).T).T
-            self.timer.add('synthesis')
+            self.timer.add('CAR synthesis')
             if debug:
                 ret.append(np.copy(map))
             return map
@@ -335,7 +311,7 @@ class GPU_cufinufft_transformer(deflection):
             map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
             if (spin % 2) != 0:
                 map_dfs[ntheta:, :] *= -1
-            self.timer.add('doubling')
+            self.timer.add('doubling (CPU)')
             if debug:
                 ret.append(np.copy(map_dfs))
             return map_dfs
@@ -350,25 +326,34 @@ class GPU_cufinufft_transformer(deflection):
                 _type_: _description_
             """
             # cufft interface gives me 11 ms as opposed to duccs 65 ms for 2058x4096
-            if HAS_CUFFT:
+            if True: #HAS_CUFFT:
                 if spin == 0:
-                    BATCH, NX = map.T.shape
-                    data_o_gpu  = gpuarray.empty((BATCH,NX),dtype=np.complex64)
-                    plan = cu_fft.Plan(map.shape, np.complex64, np.complex64)
-                    data_t_gpu  = gpuarray.to_gpu(map)
-                    cu_fft.ifft(data_t_gpu, data_t_gpu, plan)
-                    fc = data_o_gpu.get()
-                    # data_o_gpu.free()
+                    if True: # cupy version
+                        BATCH, NX = map.T.shape
+                        fc  = gpuarray.empty((BATCH,NX),dtype=np.complex128)
+                        plan = cu_fft.Plan(map.shape, np.complex128, np.complex128)
+                        data_t_gpu  = gpuarray.to_gpu(map)
+                        self.timer.add('c2c - GPU transfer<-')
+                        cu_fft.ifft(data_t_gpu, fc, plan)
+                        fc = fc.get()
+                        self.timer.add('c2c - GPU calc and transfer->')
+                    elif False:# cupy version
+                        # BATCH, NX = map.T.shape
+                        fc  = cp.asarray(np.zeros_like(map.T))
+                        data_gpu  = cp.asarray(map.T)
+                        plan = cu_fft.Plan(map.T.shape, np.complex128, np.complex128)
+                        self.timer.add('c2c - GPU transfer<-')
+                        cu_fft.ifft(data_gpu, fc, plan)
+                        self.timer.add('c2c - GPU calc and transfer->')
                 else:
                     assert 0, "implement if needed"
             else:
-                tmp = np.empty(map.shape, dtype=np.complex128)
+                fc = np.empty(map.shape, dtype=np.complex128)
                 if spin == 0:
-                    fc = ducc0.fft.c2c(map, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=tmp)
+                    ducc0.fft.c2c(map, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=fc)
                 else:
                     fc = ducc0.fft.c2c(map, axes=(0, 1), inorm=2, nthreads=self.nthreads, out=fc)
-                del tmp
-            self.timer.add('c2c')
+            # self.timer.add('c2c')
             if debug:
                 ret.append(np.copy(fc))
             return fc
@@ -377,7 +362,7 @@ class GPU_cufinufft_transformer(deflection):
             ptg = None
             if ptg is None:
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
-                self.timer.add('spin-1 maps')
+                # self.timer.add('spin-1 maps')
                 if True:
                     ptg = self.pointing_GPU(synth_spin1_map)
                     ptg = self.cacher.load('ptg')
@@ -387,14 +372,19 @@ class GPU_cufinufft_transformer(deflection):
             # self.timer.add('get pointing')
             if debug:
                 ret.append(np.copy(ptg))
-            return ptg
+            return ptg, synth_spin1_map
         
-        def _nufft(fc, ptg):
+        def _nufft(fc, ptg, smap):
             fcshifted = np.fft.fftshift(fc, axes=(0,1))
-            data_ = cp.array(fcshifted.astype(np.complex128))
+            self.timer.add('fftshift')
+            # fcshifted = fcshifted.astype(np.complex128)
+            data_ = cp.array(fcshifted)
             x_ = cp.array(ptg[:,0])
             y_ = cp.array(ptg[:,1])
-            self.timer.add('cupy array creation')
+            # data_ = dgpu #cp.array(fcshifted)
+            # x_ = cp.array(ptg[:smap.shape[0]])
+            # y_ = cp.array(ptg[:smap.shape[0]])
+            # self.timer.add('cupy array creation')
             v_ = cufinufft.nufft2d2(x=x_, y=y_, data=data_, isign=1)
             self.timer.add('nuFFT')
             values = np.real(v_.get())
@@ -409,8 +399,8 @@ class GPU_cufinufft_transformer(deflection):
         CARmap = _synthCARgrid(gclm) # alm to phi cont
         map_dfs = _CAR2dmap(CARmap) # phi cont to theta cont
         fc = _C2C(map_dfs) # theta cont to fourier space
-        ptg = _getdeflectedgrid()
-        deflectedmap = _nufft(fc, ptg)
+        ptg, smap = _getdeflectedgrid()
+        deflectedmap = _nufft(fc, ptg, smap)
 
         if polrot * spin:
             if self._cis:
@@ -537,14 +527,19 @@ class GPU_cufinufft_transformer(deflection):
         ll = np.arange(0,lmax_dlm+1,1)
         if self.shttransformer_desc == 'shtns':
             if dclm is None:
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
+                scaled = hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+                self.timer.add(('spin-1 maps - alm scaling'))
+                synth_spin1_map = self.synthesis_der1(scaled, nthreads=self.nthreads)
+                self.timer.add(('spin-1 maps - synthesis'))
             else:
                 assert 0, "implement if needed, not sure if this is possible with SHTns"
                 dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
                 dgclm[0] = dlm
                 dgclm[1] = dclm
                 synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
-            return self.flip_tpg_2d(synth_spin1_map)
+            flipped = self.flip_tpg_2d(synth_spin1_map)
+            self.timer.add(('spin-1 maps - flip'))
+            return flipped
         elif self.shttransformer_desc == 'pysht':
             assert 0, "implement if needed"
         else:

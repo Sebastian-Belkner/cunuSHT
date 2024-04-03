@@ -20,15 +20,8 @@ find_package(nanobind CONFIG REQUIRED)
 
 
 nanobind_add_module(popy
-  pysht/c/pointing.cu
-  pysht/c/pointing.h
-  pysht/c/pointing.cpp
-  pysht/c/pointing.cuh
-)
-
-nanobind_add_module(dopy
-  pysht/c/doubling.cu
-  pysht/c/doubling.h
-  pysht/c/doubling.cpp
-  pysht/c/doubling.cuh
+  test_pointing.cu
+  test_pointing.h
+  test_pointing.cpp
+  test_pointing.cuh
 )

@@ -1,4 +1,4 @@
-module load python cuda; source $pyshtenv; cd git/pySHT/pysht/c/
+module load python cuda; source $pyshtenv; cd pysht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 
@@ -11,9 +11,17 @@ srun python3 -m notebook --port=1234 --ip=$hostname
 
 
 
+# bind the c code to python
+
+cmake -S . -B build
+cmake --build build
+
+
 to install shtns on the Rusty cluster,
 export CUDA_PATH= to cuda without /lib or /bin
-then LD_LIBRARY_PATH must point to /lib64
+export LD_LIBRARY_PATH= must point to /lib64
+
+python3 setup.py develop
 
 
 to run profiling:

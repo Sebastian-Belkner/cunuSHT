@@ -48,7 +48,7 @@ for lmax in lmaxs:
             if backend == 'GPU':
                 solvers = ['cufinufft']
                 sht_solver = 'shtns' # 'shtns'
-                tCAR = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_CAR)
+                tCAR = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_CAR)
             elif backend == 'CPU':
                 solvers = ['duccnufft']
                 sht_solver = 'ducc' # 'shtns'
