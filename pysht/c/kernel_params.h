@@ -6,8 +6,7 @@ typedef struct {
     double *phi0;
     int *nphis;
     int *ringstarts;
-    double *red;
-    double *imd;
+    double *synthmap;
     int nring;
     int npix;
 } KernelParams;

@@ -9,14 +9,14 @@ from pysht import cacher
 import ducc0
 import cufinufft
 import cupy as cp
+import time
 import healpy as hp
 import ctypes
+import functools
+import time
 
 import sys
-
-sys.path.append('/mnt/home/sbelkner/git/pySHT/build') # FIXME need this to add compiled library to path so popy can be imported
-import popy
-# import dopy
+import pysht.c.podo_interface as podo
 
 import pysht
 import line_profiler
@@ -225,6 +225,175 @@ class GPU_cufinufft_transformer(deflection):
         self.nufftgeom = geometry.get_geom(geominfo)
         self.set_geometry(geominfo)
 
+    def gclm2lenmap_cupy(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, cc_transformer=None, HAS_DUCCPOINTING=True, mode=0):
+        """
+        Same as gclm2lenmap, but using cupy allocated gclm and dlm.
+        SHTns can work with this via cu_SH_to_spat()
+        The returned pointer is a pointer to the device memory, we pass it to the doubling kernel.
+        
+        SHTns also provides the synthesis_der1_cupy() method, which is a wrapper to the gradient synthesis,
+        this returns a pointer to device memory for red and imd, these are passed to the pointing kernel
+        
+        the doubling map and the pointing map are now both in device memory, we can pass both to cufinufft
+        """
+        ret = []
+        def timing_decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                # print("----------Timing {}: {}".format(func.__name__[1:], self.timer.keys[func.__name__[1:]]))
+                return func(*args, **kwargs)
+            # self.timer.add(func.__name__[1:])  # Add timer with the function name
+            return wrapper
+        
+        @timing_decorator
+        def _setup(gclm, lmax, mmax, mode):
+            if mode == 0:
+                print('Running in normal mode')
+                timing = False
+                debug = False
+            if mode == 1:
+                print('Running in timing mode')
+                timing = True
+                debug = False
+            if mode == 2:
+                print("Running in debug mode")
+                timing = False
+                debug = True
+                
+            gclm = np.atleast_2d(gclm)
+            lmax_unl = Alm.getlmax(gclm[0].size, mmax)
+            if mmax is None:
+                mmax = lmax_unl
+            if self.single_prec and gclm.dtype != np.complex64:
+                gclm = gclm.astype(np.complex64)
+
+            if False: #not debug:
+                # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
+                ntheta = ducc0.fft.good_size(lmax_unl + 2)
+                nphihalf = ducc0.fft.good_size(lmax_unl + 1)
+                nphi = 2 * nphihalf
+            else:
+                ntheta = lmax+1
+                nphihalf = lmax+1
+                nphi = 2 * nphihalf
+            return gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug
+        
+        @timing_decorator
+        def _synthCAR(gclm, out):
+            """In goes a (1,nalm) gclm, o   ut comes a (1,nalm) in out
+            """
+            # print(gclm.shape)
+            # import shtns
+            
+            cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            # lmax, mmax = 4096, 4096
+            # constructor = shtns.sht(int(lmax), int(mmax))
+            # constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
+            # alm_random = np.random.randn(constructor.nlm).astype(complex)
+            # alm = cp.array(alm_random, dtype=complex)
+            # x = cp.empty((constructor.nlat, constructor.nphi), dtype=np.double)
+            # print(alm.shape, x.shape)
+            # a = time.time()
+            # constructor.cu_SH_to_spat(alm.data.ptr, x.data.ptr)
+            # b = time.time()
+            # print("cu_SH_to_spat:: time elapsed:", b-a)
+            self.timer.add("synthCAR")
+            # out = x
+            
+        @timing_decorator
+        def _get_spin1maps(dlm, out):
+            synth_spin1_maps = self.synthesis_der1_cupy(dlm, out, nthreads=self.nthreads)
+            self.timer.add("spin-1 maps")
+            return synth_spin1_maps
+
+        @timing_decorator
+        def _CAR2dmap(map, ntheta, nphi):
+            # print("input CAR2dmap: {}({}), {}, {}".format(map, map.shape, ntheta, nphi))
+            _ = podo.Cdoubling_ptrs(map, ntheta, nphi)
+            self.timer.add("doubling")
+            return _
+        
+        @timing_decorator
+        def _C2C(map, fc):
+            def from_cupy(arr):
+                shape = arr.shape
+                dtype = arr.dtype
+                # a dummy object always returns the underlying pointer address
+                def alloc(x):
+                    return arr.data.ptr
+                if arr.flags.c_contiguous:
+                    order = 'C'
+                elif arr.flags.f_contiguous:
+                    order = 'F'
+                else:
+                    raise ValueError('arr order cannot be determined')
+                return gpuarray.GPUArray(shape=shape,
+                                        dtype=dtype,
+                                        allocator=alloc,
+                                        order=order)
+            
+            import cupyx.scipy.fft as cufft
+            import scipy.fft
+            scipy.fft.set_global_backend(cufft)
+
+            b = scipy.fft.ifft(map)  # equivalent to cufft.fft(a)
+            self.timer.add("C2C")
+            
+            return b
+        
+        @timing_decorator
+        def _getdeflectedgrid(cpsynth_spin1_maps, cpt, cpphi0, cpnph, cpofs, host_result):
+            _ =  podo.Cpointing_ptrs(
+                cpt, cpphi0, cpnph, cpofs, 
+                cpsynth_spin1_maps,
+                len(self.geom.nph), self.geom.npix(), host_result)
+            self.timer.add("pointing")
+            return _
+        
+        @timing_decorator
+        def _nufft(fc, ptg):
+            time.sleep(0.1)
+            self.timer.add("nufft")
+            return fc
+            # return cufinufft.nufft2d2(x=ptg[0], y=ptg[1], data=fc, isign=1)
+        
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('gclm2lenmap()')
+        gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug = _setup(gclm, lmax, mmax, mode)
+        
+        #TODO These allocations can move out of the pipeline
+        out_dev2 = cp.zeros_like(gclm, dtype=cp.complex128)
+        print((cc_transformer.constructor.nphi, cc_transformer.constructor.nlat))
+        cpCARmap = cp.empty((cc_transformer.constructor.nlat, cc_transformer.constructor.nphi), dtype=cp.double)
+        host_res = np.zeros_like(gclm, dtype=np.double)
+        cpgclm = cp.array(gclm.flatten(), dtype=cp.complex128)
+        cpt = cp.array(self.geom.theta.astype(np.double), dtype=cp.double)
+        cpphi0 = cp.array(self.geom.phi0, dtype=cp.double)
+        cpnph = cp.array(self.geom.nph, dtype=cp.int)
+        cpofs = cp.array(self.geom.ofs, dtype=cp.int32)
+        self.timer.add('Transfers to GPU')
+        
+        ll = np.arange(0,self.lmax_dlm+1,1)
+        scaled = hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+        self.timer.add('dlm scaling')
+        
+        synth_spin1_maps = _get_spin1maps(scaled, out_dev2)
+        cpspin1 = cp.array(synth_spin1_maps.flatten(), dtype=cp.double)
+        self.timer.add("synth_spin1_maps to GPU")
+        
+        _synthCAR(cpgclm, cpCARmap)
+        
+        cpdoublemap = _CAR2dmap(cpCARmap.flatten(), ntheta, nphi)
+        
+        cpfc = _C2C(cpdoublemap, out_dev2)
+        
+        ptg = _getdeflectedgrid(cpspin1, cpt, cpphi0, cpnph, cpofs, host_res)
+        
+        deflectedmap = _nufft(cpfc, ptg)
+        if timing:
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
+        print("stored new data")
+        # return deflectedmap.get().real.flatten()
 
     # @profile
     def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, cc_transformer=None, HAS_DUCCPOINTING=True, mode=0):
@@ -271,7 +440,7 @@ class GPU_cufinufft_transformer(deflection):
             return gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug
         
         @shape_decorator
-        def _synthCARgrid(gclm):
+        def _synthCAR(gclm):
             """Generates phi contiguuous array from any SHT transformer. However, only view is set, so likely in memory still theta contiguous.
             #FIXME keep this theta contiguos and rewrite the doubling to theta contiguous
             Args:
@@ -396,7 +565,7 @@ class GPU_cufinufft_transformer(deflection):
         self.timer.start('gclm2lenmap()')
         
         gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug = _setup(gclm, lmax, mmax, mode)
-        CARmap = _synthCARgrid(gclm) # alm to phi cont
+        CARmap = _synthCAR(gclm) # alm to phi cont
         map_dfs = _CAR2dmap(CARmap) # phi cont to theta cont
         fc = _C2C(map_dfs) # theta cont to fourier space
         ptg, smap = _getdeflectedgrid()

@@ -135,13 +135,14 @@ int* argsort(int* array, int size) {
     return indices;
 }
 
-__global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *pointings) {
+__global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *pt, double* pp) {
     //idx is nring
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     double PI = 3.14159265359;
     if (1 == 0) {
         if (idx <= kp.nring) {
-            pointings[idx] = kp.ringstarts[idx];
+            pt[idx] = kp.ringstarts[idx];
+            pp[idx] = kp.ringstarts[idx];
         }
     } else {
         if (idx <= kp.nring) {
@@ -154,7 +155,7 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
                 kl.phi[i] = kp.phi0[idx] + i * (2. * PI / npixring);
             }
             for (int i = ringstart; i < ringstart+npixring; i++) {
-                kl.d[i] = kp.red[i] * kp.red[i] + kp.imd[i] * kp.imd[i];
+                kl.d[i] = kp.synthmap[i] * kp.synthmap[i] + kp.synthmap[i+kp.npix] * kp.synthmap[i+kp.npix];
             }
             
             if (dev_isbigger(kl.d, ringstart, ringstart+npixring, 0.001)){
@@ -173,9 +174,9 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
                 }
             }
             for (int i = ringstart; i < ringstart+npixring; i++) {
-                kl.e_a1[i] = kl.cost * kp.red[i];
+                kl.e_a1[i] = kl.cost * kp.synthmap[i];
                 kl.e_a2[i] = kl.phi[i];
-                kl.e_a3[i] = -kl.sint * kp.red[i];
+                kl.e_a3[i] = -kl.sint * kp.synthmap[i];
             }
 
             // kl.n_prime(kl.e_r * kl.cos_a + kl.e_a * kl.sin_d);
@@ -196,16 +197,15 @@ __global__ void compute_pointing(KernelParams kp, KernelLocals kl, double *point
             
             // kl.phinew = (kl.phinew >= 2.*PI) ? (kl.phinew - 2.*PI) : kl.phinew;
             for (int i = ringstart; i < ringstart+npixring; i++) {
-                pointings[i] = kl.npt[i];
-                pointings[i + kp.npix] = kl.npp[i] + kl.phi[i];
-                pointings[i + kp.npix] = (pointings[i + kp.npix] >= 2*PI) ? (pointings[i + kp.npix] - 2.*PI) : pointings[i + kp.npix];
+                pt[i] = kl.npt[i];
+                pp[i] = kl.npp[i] + kl.phi[i];
+                pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
             }
         }
     }
 }
 
-
-double* CUpointing_struct(KernelParams hostkp) {
+std::tuple<double*, double*> CUpointing_struct(KernelParams hostkp) {
     printf("CUpointing_exec:: starting kernel\n");
     clock_t start, stop;
     double cpu_time_used;
@@ -258,8 +258,7 @@ double* CUpointing_struct(KernelParams hostkp) {
     printf("hostkp.phi0: %p\n", hostkp.phi0);
     printf("hostkp.nphis: %p\n", hostkp.nphis);
     printf("hostkp.ringstarts: %p\n", hostkp.ringstarts);
-    printf("hostkp.red: %p\n", hostkp.red);
-    printf("hostkp.imd: %p\n", hostkp.imd);
+    printf("hostkp.synthmap: %p\n", hostkp.synthmap);
 
     KernelParams devkp;
     // cudaMalloc((void**)&devkp, sizeof(KernelParams));
@@ -269,18 +268,19 @@ double* CUpointing_struct(KernelParams hostkp) {
     devkp.phi0 = hostkp.phi0;
     devkp.nphis = hostkp.nphis;
     devkp.ringstarts = hostkp.ringstarts;
-    devkp.red = hostkp.red;
-    devkp.imd = hostkp.imd;
+    devkp.synthmap = hostkp.synthmap;
     devkp.nring = hostkp.nring;
     devkp.npix = hostkp.npix;
 
 
-    double *dev_result;
-    cudaMalloc((void**)&dev_result, 2*hostkp.npix * sizeof(double));
+    double *dev_result_theta;
+    cudaMalloc((void**)&dev_result_theta, hostkp.npix * sizeof(double));
+    double *dev_result_phi;
+    cudaMalloc((void**)&dev_result_phi, hostkp.npix * sizeof(double));
 
     const int threadsPerBlock = 128;
     int blocksPerGrid = (hostkp.nring + threadsPerBlock - 1) / threadsPerBlock;
-    compute_pointing<<<blocksPerGrid, threadsPerBlock>>>(devkp, kl, dev_result);
+    compute_pointing<<<blocksPerGrid, threadsPerBlock>>>(devkp, kl, dev_result_theta, dev_result_phi);
     cudaDeviceSynchronize();
 
     cudaError_t errSync  = cudaGetLastError();
@@ -312,8 +312,7 @@ double* CUpointing_struct(KernelParams hostkp) {
     cudaFree(devkp.phi0);
     cudaFree(devkp.nphis);
     cudaFree(devkp.ringstarts);
-    cudaFree(devkp.red);
-    cudaFree(devkp.imd);
+    cudaFree(devkp.synthmap);
     
-    return dev_result;
+    return std::make_tuple(dev_result_theta, dev_result_phi);
 }

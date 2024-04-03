@@ -23,11 +23,11 @@ __global__ void compute_doubling_spin0(double* pointings, int nring, int nphi, d
         // map_dfs[ntheta:, nphihalf:] = map_dfs[ntheta - 2:0:-1, :nphihalf]
         for (int i = 0; i < nphi; i++) {
             doublings[i] = pointings[i];
-            doublings[i + nphi] = pointings[i + nphi];
+            // doublings[i + nphi] = pointings[i + nphi];
         }
         for (int i = nphi; i < 2*nphi; i++) {
             doublings[i] = pointings[2*nphi - i];
-            doublings[i + nphi] = pointings[nphi - i];
+            // doublings[i + nphi] = pointings[nphi - i];
         }
     }
 }
