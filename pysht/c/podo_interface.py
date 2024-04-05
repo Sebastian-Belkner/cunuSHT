@@ -22,8 +22,11 @@ def Cpointing_ptrs(thetas, phi0, nphis, ringstarts, synthmaps, nring, npix, host
 def Cpointing_cparr(thetas, phi0, nphis, ringstarts, synthmap, nring, npix, outarr_pt, outarr_pp):
     popy.CUpointing_cparr(thetas, phi0, nphis, ringstarts, synthmap, outarr_pt, outarr_pp)
 
-def Cpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, nring, npix, outarr_pt, outarr_pp):
-    popy.CUpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, outarr_pt, outarr_pp)
+def Cpointing_2Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
+    popy.CUpointing_2Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
+    
+def Cpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
+    popy.CUpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
 
 def Cdoubling_ptrs(pointings, nring, nphi):
     memaddress = dopy.Cdoubling_ptrs(pointings.data.ptr, nring, nphi)

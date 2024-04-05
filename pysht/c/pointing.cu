@@ -138,14 +138,20 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         // kl.e_r(sin(theta(iring)), 0, cos(theta(iring)));
         kl.sint = sin(thetas[idx]); 
         kl.cost = cos(thetas[idx]);
+
+        // mav_apply([](auto np, auto &dp){dp=2.*pi/np;}, 1, nphi, res);
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.phi[i] = phi0[idx] + i * (2. * PI / npixring);
+            kl.phi[i] = phi0[idx] + (i-ringstart) * (2. * PI / npixring);
         }
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.d[i] = spin1_theta[i] * spin1_theta[i] + spin1_phi[i] * spin1_theta[i+npix];
+            kl.d[i] = spin1_theta[i] * spin1_theta[i] + spin1_phi[i] * spin1_phi[i];
         }
         
         if (dev_isbigger(kl.d, ringstart, ringstart+npixring, 0.001)){
+            // double a = sqrt(d);
+            // sin_aoa = sin(a)/a;
+            // cos_a = cos(a);
+            // twohav_aod = (cos_a -1.) / d;
             for (int i = ringstart; i < ringstart+npixring; i++) {
                 kl.a[i] = sqrt(kl.d[i]);
                 kl.sind_d[i] = sin(kl.a[i]) / kl.a[i];
@@ -154,16 +160,20 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
             }
             
         } else {
+            // sin_aoa = 1. - d/6. * (1. - d/20. * (1. - d/42.));         // sin(a) / a
+            // twohav_aod = -0.5 + d/24. * (1. - d/30. * (1. - d/56.));   // (cos a - 1) / (a* a) (also needed for rotation)      
+            // cos_a = 1. + d * twohav_aod; 
             sindod_m1(kl.d, ringstart, ringstart+npixring, kl.sind_d);
             for (int i = ringstart; i < ringstart+npixring; i++) {
                 kl.twohav_aod[i] = -0.5 + kl.d[i]/24. * (1. - kl.d[i]/30. * (1. - kl.d[i]/56.));
                 kl.cos_a[i] = 1. + kl.d[i] * kl.twohav_aod[i];
             }
         }
+        // vec3 e_a(e_r.z * a_theta, a_phi, -e_r.x * a_theta); 
         for (int i = ringstart; i < ringstart+npixring; i++) {
             kl.e_a1[i] = kl.cost * spin1_theta[i];
             kl.e_a2[i] = kl.phi[i];
-            kl.e_a3[i] = -kl.sint * spin1_phi[i];
+            kl.e_a3[i] = -kl.sint * spin1_theta[i];
         }
 
         // kl.n_prime(kl.e_r * kl.cos_a + kl.e_a * kl.sin_d);
@@ -177,7 +187,7 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         //phi = safe_atan2 (inp.y,inp.x);
         //if (phi<0.) phi += twopi;
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.npt[i] = atan2(sqrt(kl.np1[i]*kl.np1[i] + kl.np2[i] * kl.np2[i]), kl.np3[i]);
+            kl.npt[i] = atan2(sqrt(kl.np1[i]*kl.np1[i] + kl.np2[i]*kl.np2[i]), kl.np3[i]);
             kl.npp[i] = atan2(kl.np2[i], kl.np1[i]);
             kl.npp[i] = (kl.npp[i] < 0.) ? (kl.npp[i] + 2.*PI) : kl.npp[i];
         }
@@ -185,7 +195,7 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         // kl.phinew = (kl.phinew >= 2.*PI) ? (kl.phinew - 2.*PI) : kl.phinew;
         for (int i = ringstart; i < ringstart+npixring; i++) {
             pt[i] = kl.npt[i];
-            pp[i] = kl.npp[i] + kl.phi[i];
+            pp[i] = kl.phi[i] + kl.npp[i];
             pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
         }
     }

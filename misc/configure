@@ -10,7 +10,6 @@ nvcc  -o pysht/c/pointing.so -shared -Xcompiler -fPIC pysht/c/pointing.cpp pysht
 srun python3 -m notebook --port=1234 --ip=$hostname
 
 
-
 # bind the c code to python
 
 cmake -S . -B build
