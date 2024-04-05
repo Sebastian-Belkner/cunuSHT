@@ -7,13 +7,17 @@ def shape_decorator(func):
         func_name = func.__name__
         class_name = func.__qualname__.split('.')[0]
         
-        input_shape = [np.shape(arg) for arg in args]
+        input_shapes = [(param_name, np.shape(arg)) for param_name, arg in zip(func.__code__.co_varnames, args)]
         result = func(*args, **kwargs)
-        output_shape = np.shape(result)
 
         print(f"{class_name}.{func_name}")
-        print(f"  Input shape: {input_shape}")
-        print(f"  Output shape: {output_shape}")
+        print("  Input shapes:")
+        for param_name, shape in input_shapes:
+            print(f"    {param_name}: {shape}")
+
+        output_shapes = [np.shape(res) for res in result]
+        output_types = [type(res) for res in result]
+        print(f"  Output shape: {output_shapes}, types: {output_types}")
 
         return result
 

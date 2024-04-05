@@ -22,8 +22,8 @@ class GPU_SHTns_transformer():
             print(30*"===")
             self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
             # sht_reg_poles only this
-            # self.constructor.set_grid(flags=shtns.sht_reg_dct + shtns.SHT_THETA_CONTIGUOUS)
-            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
+            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
+            # self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))

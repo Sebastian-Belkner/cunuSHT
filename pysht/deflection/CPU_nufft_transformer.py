@@ -479,7 +479,7 @@ class CPU_DUCCnufft_transformer(deflection):
         """ 
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap()')
-        ret = []
+        ret = {}
         s2_d = np.sum(alm2cl(dlm, dlm, lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
         sig_d = np.sqrt(s2_d / self.geom.fsky())
         sig_d_amin = sig_d / np.pi * 180 * 60
@@ -526,7 +526,7 @@ class CPU_DUCCnufft_transformer(deflection):
         map = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=ntheta, nphi=nphi, spin=spin, lmax=lmax_unl, mmax=mmax, geometry="CC", nthreads=nthreads, mode=ducc_sht_mode(gclm, spin))
         self.timer.add('synthesis')
         if debug:
-            ret.append(np.copy(map))
+            ret.update({'synthesis': np.copy(map)})
             
             
         # extend map to double Fourier sphere map
@@ -544,7 +544,7 @@ class CPU_DUCCnufft_transformer(deflection):
             map_dfs[ntheta:, :] *= -1
         self.timer.add('doubling')
         if debug:
-            ret.append(np.copy(map_dfs))
+            ret.update({'doubling': np.copy(map_dfs)})
 
 
         # go to Fourier space
@@ -556,7 +556,7 @@ class CPU_DUCCnufft_transformer(deflection):
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
         self.timer.add('c2c')
         if debug:
-            ret.append(np.copy(map_dfs))
+            ret.update({'C2C': np.copy(map_dfs)})
             
 
         if self.planned: # planned nufft
@@ -571,12 +571,12 @@ class CPU_DUCCnufft_transformer(deflection):
                 ptg = self.cacher.load('ptg')
             self.timer.add('get pointing')
             if debug:
-                ret.append(np.copy(ptg))
+                ret.update({'pointing': np.copy(ptg)})
             values = ducc0.nufft.u2nu(grid=map_dfs, coord=ptg, forward=False, epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
             self.timer.add('nuFFT')
             self.tim.add('u2nu')
         if debug:
-            ret.append(np.copy(values.real))
+            ret.update({'nuFFT': np.copy(values.real)})
 
         if polrot * spin:
             if self._cis:

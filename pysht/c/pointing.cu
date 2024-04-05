@@ -23,12 +23,6 @@ namespace nb = nanobind;
 using namespace nb::literals;
 
 
-// void float_to_double(const float* src, double* dest, int size) {
-//     for (int i = 0; i < size; i++) {
-//         dest[i] = (double)src[i];
-//     }
-// }
-
 // std::tuple<intptr_t, intptr_t> Cpointing_ptrs(intptr_t thetas_, intptr_t phi0_, intptr_t nphis_, intptr_t ringstarts_, intptr_t synthmap_, int nring, int npix, double *host_result){
 //     printf("pointing.cpp:: Cpointing_ptrs\n");
 //     KernelParams kp;
@@ -44,12 +38,6 @@ using namespace nb::literals;
 //     return std::make_tuple(reinterpret_cast<intptr_t>(std::get<0>(devres)),reinterpret_cast<intptr_t>(std::get<1>(devres)));
 // }
 
-
-// void CUfloat_to_double(const float* src, double* dest, int size) {
-//     for (int i = 0; i < size; i++) {
-//         dest[i] = (double)src[i];
-//     }
-// }
 
 __device__ double dev_power_element(double value, int exponent){
     double result = exponent > 1 ? value : 1;
