@@ -323,9 +323,7 @@ class GPU_cufinufft_transformer(deflection):
         
         @timing_decorator
         def _pointing(spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi):
-            podo.Cpointing_1Dto1D(
-                cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi,
-                len(self.geom.nph), self.geom.npix(), pointing_theta, pointing_phi)
+            podo.Cpointing_1Dto1D(cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi, pointing_theta, pointing_phi)
         
         @timing_decorator
         def _nufft(fc, ptg_theta, ptg_phi):
