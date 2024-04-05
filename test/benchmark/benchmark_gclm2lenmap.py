@@ -18,7 +18,7 @@ else:
 
 sht_solver = 'shtns'
 # lmaxs = np.array([n*256-1 for n in np.arange(1,15)])
-lmaxs = np.array([2**n-1 for n in np.arange(12,13)])
+lmaxs = np.array([2**n-1 for n in np.arange(int(sys.argv[2]),int(sys.argv[2])+1)])
 for lmax in lmaxs:
     geominfo = ('gl',{'lmax':lmax})
     lldlm = np.arange(0,lmax+1024)
@@ -41,7 +41,6 @@ for lmax in lmaxs:
         'single_prec':False,
         'planned':False
     }
-    
     geominfo_CAR = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
     for solver in solvers:
         for backend in backends:

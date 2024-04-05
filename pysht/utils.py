@@ -54,11 +54,18 @@ class timer:
             return r""
         maxlen = np.max([len(k) for k in self.keys])
         dt_tot = time.time() - self.ti
-        s = ""
-        ts = "\r  {0:%s}" % (str(maxlen) + "s")
+        s = "\n"
+        s += "  " + 27*('--') + '\n'
+        ts = "\r | {0:%s}" % (str(maxlen) + "s")
         for k in self.keys:
-            s += ts.format(k) + ":  [" + str(timedelta(seconds=self.keys[k])) + "] " + "(%.1f%%)  \n"%(100 * self.keys[k]/dt_tot)
-        s += ts.format("Total") + ":  [" + str(timedelta(seconds=dt_tot)) + "] " + "d:h:m:s:mus"
+            _ = str(timedelta(seconds=self.keys[k], ))
+            _ = ':'.join(str(_).split(':')[2:])
+            s += ts.format(k) + ":  [" + _ + "] " + "(%.1f%%)  \t|\n"%(100 * self.keys[k]/dt_tot)
+        _ = str(timedelta(seconds=dt_tot))
+        _ = ':'.join(str(_).split(':')[2:])
+        s += "  " + 27*('- ') + '\n'
+        s += ts.format("Total") + ":  [" + _ + "] " + "sec.mus  \t|"
+        s += "\n  " + 27*('--') + '\n'
         return s
 
     def add(self, label):

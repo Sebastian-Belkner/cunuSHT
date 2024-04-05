@@ -3,8 +3,8 @@ sys.path.append('/mnt/home/sbelkner/git/pySHT/build')
 import numpy as np
 
 import cupy as cp
-import popy
-import dopy
+import pysht_interface.popy as popy
+import pysht_interface.dopy as dopy
 from cupy.cuda.memory import MemoryPointer, UnownedMemory
 
 def memaddress2cparr(memaddress:int, size:int, dtype:type, owner=None):
@@ -13,22 +13,25 @@ def memaddress2cparr(memaddress:int, size:int, dtype:type, owner=None):
     memptr = MemoryPointer(mem, 0)
     return cp.ndarray(size, dtype=dtype, memptr=memptr)
 
-def Cpointing_ptrs(thetas_, phi0_, nphis_, ringstarts_, synthmaps_, nrings, npix, host_result):
-    mas = popy.Cpointing_ptrs(thetas_.data.ptr, phi0_.data.ptr, nphis_.data.ptr, ringstarts_.data.ptr, synthmaps_.data.ptr, nrings, npix, host_result)
-    print("I am Python: memory address from pointing: {}".format(mas))
+def Cpointing_ptrs(thetas, phi0, nphis, ringstarts, synthmaps, nring, npix, host_result):
+    mas = popy.Cpointing_ptrs(thetas.data.ptr, phi0.data.ptr, nphis.data.ptr, ringstarts.data.ptr, synthmaps.data.ptr, nring, npix, host_result)
     cparr_theta = memaddress2cparr(mas[0], npix, cp.double)
     cparr_phi = memaddress2cparr(mas[1], npix, cp.double)
-    # print("Shape_theta:", cparr_theta.shape)
-    # print("Data type_theta:", cparr_theta.dtype)
-    # print("Strides_theta:", cparr_theta.strides)
-    # print("Device pointer_theta:", cparr_theta.data.ptr) 
     return [cparr_theta, cparr_phi]
 
-def Cdoubling_ptrs(pointings_memaddress, nring, nphi):
-    memaddress = dopy.Cdoubling_ptrs(pointings_memaddress.data.ptr, nring, nphi)
+def Cpointing_cparr(thetas, phi0, nphis, ringstarts, synthmap, nring, npix, outarr_pt, outarr_pp):
+    popy.CUpointing_cparr(thetas, phi0, nphis, ringstarts, synthmap, outarr_pt, outarr_pp)
+
+def Cpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, nring, npix, outarr_pt, outarr_pp):
+    popy.CUpointing_1Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, outarr_pt, outarr_pp)
+
+def Cdoubling_ptrs(pointings, nring, nphi):
+    memaddress = dopy.Cdoubling_ptrs(pointings.data.ptr, nring, nphi)
     cparr = memaddress2cparr(memaddress, 4*nphi*nring, cp.double)
-    print("Shape:", cparr.shape)
-    print("Data type:", cparr.dtype)
-    print("Strides:", cparr.strides)
-    print("Device pointer:", cparr.data.ptr) 
     return cparr
+
+def Cdoubling_1D(synth1D, nring, nphi, out):
+    dopy.CUdoubling_cparr1D(synth1D, nring, nphi, out)
+    
+def Cdoubling_cparr2D(synth2D, nring, nphi, out):
+    dopy.CUdoubling_cparr2D(synth2D, nring, nphi, out)

@@ -1,21 +1,27 @@
-#include <stdio.h>
-#include <stdlib.h>
-
-// #if defined(HAS_NANOBIND)
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/tuple.h>
 
-// #endif
+#include <stdio.h>
+#include <stdlib.h>
 
-#include "pointing.h"
-#include "pointing.cuh"
+#include <math.h>
+#include <assert.h>
+#include <cmath>
+#include <chrono>
+#include <time.h>
 
-// #if defined(HAS_NANOBIND)
+// #include "pointing.h"
+#include "kernel_params.h"
+
+#include <cuda.h>
+#include <cuda_runtime_api.h>
+#include <cuda_device_runtime_api.h>
+
 namespace nb = nanobind;
 using namespace nb::literals;
-// #endif
+
 
 void float_to_double(const float* src, double* dest, int size) {
     for (int i = 0; i < size; i++) {
@@ -35,21 +41,17 @@ std::tuple<intptr_t, intptr_t> Cpointing_ptrs(intptr_t thetas_, intptr_t phi0_, 
     kp.npix = npix;
 
     auto devres = CUpointing_struct(kp);
-    // printf("testing_cpp:: %p\n", devres);
-    // long* arr = new long[2];
-    // arr[0] = reinterpret_cast<intptr_t>(std::get<0>(devres));
-    // arr[1] = reinterpret_cast<intptr_t>(std::get<1>(devres));
-
-    // for (int i = 0; i < 2; i++) {
-        // printf("arr[%d] = %p\n", i, arr[i]);
-    // }
-    // return arr;
-    printf("pointing.cpp:: Cpointing_ptrs:: %p\n", reinterpret_cast<intptr_t>(std::get<0>(devres)));
-    printf("pointing.cpp:: Cpointing_ptrs:: %p\n", reinterpret_cast<intptr_t>(std::get<1>(devres)));
     return std::make_tuple(reinterpret_cast<intptr_t>(std::get<0>(devres)),reinterpret_cast<intptr_t>(std::get<1>(devres)));
 }
 
-// #if defined(HAS_NANOBIND)
+
+void CUfloat_to_double(const float* src, double* dest, int size) {
+    for (int i = 0; i < size; i++) {
+        dest[i] = (double)src[i];
+    }
+}
+
+
 NB_MODULE(popy, m) {
     m.def(
         "Cpointing_ptrs",
@@ -67,4 +69,3 @@ NB_MODULE(popy, m) {
         }
     );
 }
-// #endif

@@ -65,7 +65,7 @@ class GPU_SHTns_transformer():
         ret = np.array([a.flatten() for a in buff])
         return ret
 
-    def synthesis_der1_cupy(self, gclm: np.int64, out: np.int64, nthreads=None):
+    def synthesis_der1_cupy(self, gclm, out_theta, out_phi, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
@@ -73,9 +73,7 @@ class GPU_SHTns_transformer():
         """
         # gclm = np.atleast_2d(gclm)
         # print("inside synthesis_der1_cupy", gclm.shape)
-        buff = self.constructor.synth_grad(gclm)
-        ret = np.array([a.flatten() for a in buff])
-        return ret
+        self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 
     def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 

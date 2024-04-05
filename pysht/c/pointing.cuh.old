@@ -1,0 +1,33 @@
+// pointing.cuh
+#ifndef POINTING_CUH
+#define POINTING_CUH
+#include <tuple>
+#include "kernel_params.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "kernel_params.h"
+#include "pointing.cuh"
+
+#include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
+#include <nanobind/stl/array.h>
+#include <nanobind/stl/tuple.h>
+
+namespace nb = nanobind;
+using namespace nb::literals;
+
+std::tuple<double*, double*> CUpointing_struct(KernelParams hostkp);
+
+template <typename Scalar>
+void CUpointing_cparr(
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> thetas,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> phi0,
+    nb::ndarray<const int, nb::ndim<1>, nb::device::cuda> nphis,
+    nb::ndarray<const int, nb::ndim<1>, nb::device::cuda> ringstarts,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> synthmap,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pt,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pp);
+
+#endif // POINTING_CUH

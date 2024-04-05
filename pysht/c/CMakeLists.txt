@@ -8,10 +8,7 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-
-
 # set(CMAKE_CUDA_STANDARD 14)
-
 
 execute_process(COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
   OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE NB_DIR)
@@ -20,17 +17,14 @@ find_package(nanobind CONFIG REQUIRED)
 
 enable_language(CUDA)
 nanobind_add_module(popy
-  pysht/c/pointing.cu
-  pysht/c/pointing.h
-  pysht/c/pointing.cpp
-  pysht/c/pointing.cuh
+  pointing.cu
+  # pointing.h
+  # pointing.cpp
+  # pointing.cuh
 )
 
 nanobind_add_module(dopy
-  pysht/c/doubling.cu
-  pysht/c/doubling.h
-  pysht/c/doubling.cpp
-  pysht/c/doubling.cuh
+  doubling.cu
 )
 
 # Check if the compiler supports C++17
@@ -49,4 +43,6 @@ else()
 endif()
 
 
-install(TARGETS popy LIBRARY DESTINATION interface)
+install(TARGETS popy LIBRARY DESTINATION pysht_interface)
+
+install(TARGETS dopy LIBRARY DESTINATION pysht_interface)

@@ -21,6 +21,10 @@ import pysht.c.podo_interface as podo
 import pysht
 import line_profiler
 
+import cupyx.scipy.fft as cufft
+import scipy.fft
+scipy.fft.set_global_backend(cufft)
+
 import pysht.geometry as geometry
 from pysht.geometry import Geom
 from pysht.utils import timer
@@ -240,9 +244,14 @@ class GPU_cufinufft_transformer(deflection):
         def timing_decorator(func):
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                # print("----------Timing {}: {}".format(func.__name__[1:], self.timer.keys[func.__name__[1:]]))
-                return func(*args, **kwargs)
-            # self.timer.add(func.__name__[1:])  # Add timer with the function name
+                tkey = func.__name__.replace('___', ' ').replace('__', '-').replace('_', '')
+                self.timer.reset()
+                cp.cuda.runtime.deviceSynchronize()
+                _ = func(*args, **kwargs)
+                cp.cuda.runtime.deviceSynchronize()
+                self.timer.add(tkey)
+                print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, self.timer.keys[tkey]) + 15*"- ")
+                return _
             return wrapper
         
         @timing_decorator
@@ -279,46 +288,25 @@ class GPU_cufinufft_transformer(deflection):
             return gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug
         
         @timing_decorator
-        def _synthCAR(gclm, out):
-            """In goes a (1,nalm) gclm, o   ut comes a (1,nalm) in out
+        def _synthesis(gclm, out):
+            """In goes a (1,nalm) gclm, out comes a (1,nalm) in out
             """
-            # print(gclm.shape)
-            # import shtns
-            
-            cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
-            # lmax, mmax = 4096, 4096
-            # constructor = shtns.sht(int(lmax), int(mmax))
-            # constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
-            # alm_random = np.random.randn(constructor.nlm).astype(complex)
-            # alm = cp.array(alm_random, dtype=complex)
-            # x = cp.empty((constructor.nlat, constructor.nphi), dtype=np.double)
-            # print(alm.shape, x.shape)
-            # a = time.time()
-            # constructor.cu_SH_to_spat(alm.data.ptr, x.data.ptr)
-            # b = time.time()
-            # print("cu_SH_to_spat:: time elapsed:", b-a)
-            self.timer.add("synthCAR")
-            # out = x
-            
-        @timing_decorator
-        def _get_spin1maps(dlm, out):
-            synth_spin1_maps = self.synthesis_der1_cupy(dlm, out, nthreads=self.nthreads)
-            self.timer.add("spin-1 maps")
-            return synth_spin1_maps
+            # cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            return cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
 
         @timing_decorator
-        def _CAR2dmap(map, ntheta, nphi):
-            # print("input CAR2dmap: {}({}), {}, {}".format(map, map.shape, ntheta, nphi))
-            _ = podo.Cdoubling_ptrs(map, ntheta, nphi)
-            self.timer.add("doubling")
-            return _
+        def _spin__1___synth(dlm, out_theta, out_phi):
+            self.synthesis_der1_cupy(dlm, out_theta, out_phi, nthreads=self.nthreads)
+
+        @timing_decorator
+        def _doubling(map, ntheta, nphi, out):
+            podo.Cdoubling_1D(map, ntheta, nphi, out)
         
         @timing_decorator
-        def _C2C(map, fc):
+        def _C2C(map):
             def from_cupy(arr):
                 shape = arr.shape
                 dtype = arr.dtype
-                # a dummy object always returns the underlying pointer address
                 def alloc(x):
                     return arr.data.ptr
                 if arr.flags.c_contiguous:
@@ -331,67 +319,74 @@ class GPU_cufinufft_transformer(deflection):
                                         dtype=dtype,
                                         allocator=alloc,
                                         order=order)
-            
-            import cupyx.scipy.fft as cufft
-            import scipy.fft
-            scipy.fft.set_global_backend(cufft)
-
-            b = scipy.fft.ifft(map)  # equivalent to cufft.fft(a)
-            self.timer.add("C2C")
-            
-            return b
+            return scipy.fft.ifft(map)
         
         @timing_decorator
-        def _getdeflectedgrid(cpsynth_spin1_maps, cpt, cpphi0, cpnph, cpofs, host_result):
-            _ =  podo.Cpointing_ptrs(
-                cpt, cpphi0, cpnph, cpofs, 
-                cpsynth_spin1_maps,
-                len(self.geom.nph), self.geom.npix(), host_result)
-            self.timer.add("pointing")
-            return _
+        def _pointing(spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi):
+            podo.Cpointing_1Dto1D(
+                cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi,
+                len(self.geom.nph), self.geom.npix(), pointing_theta, pointing_phi)
         
         @timing_decorator
-        def _nufft(fc, ptg):
-            time.sleep(0.1)
-            self.timer.add("nufft")
-            return fc
-            # return cufinufft.nufft2d2(x=ptg[0], y=ptg[1], data=fc, isign=1)
+        def _nufft(fc, ptg_theta, ptg_phi):
+            time.sleep(0.07)
+            return 0
+            # return cufinufft.nufft2d2(x=pointing_theta, y=pointing_phi, data=fc, isign=1)
         
+        
+        cpCARmap = np.random.randn(cc_transformer.constructor.nlat, cc_transformer.constructor.nphi)
+        cpCARmap = cp.array(cpCARmap, dtype=np.double)
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap()')
         gclm, lmax, mmax, ntheta, nphihalf, nphi, timing, debug = _setup(gclm, lmax, mmax, mode)
         
         #TODO These allocations can move out of the pipeline
-        out_dev2 = cp.zeros_like(gclm, dtype=cp.complex128)
-        print((cc_transformer.constructor.nphi, cc_transformer.constructor.nlat))
-        cpCARmap = cp.empty((cc_transformer.constructor.nlat, cc_transformer.constructor.nphi), dtype=cp.double)
-        host_res = np.zeros_like(gclm, dtype=np.double)
-        cpgclm = cp.array(gclm.flatten(), dtype=cp.complex128)
+        doubledmap = cp.zeros(2*self.geom.npix(), dtype=cp.double)
+        spin1_theta = cp.zeros(self.geom.npix(), dtype=cp.double)
+        spin1_phi = cp.zeros(self.geom.npix(), dtype=cp.double)
+        pointing_theta = cp.zeros(self.geom.npix(), dtype=cp.double)
+        pointing_phi = cp.zeros(self.geom.npix(), dtype=cp.double)
+        cpgclm = cp.array(gclm, dtype=np.complex)
         cpt = cp.array(self.geom.theta.astype(np.double), dtype=cp.double)
         cpphi0 = cp.array(self.geom.phi0, dtype=cp.double)
-        cpnph = cp.array(self.geom.nph, dtype=cp.int)
-        cpofs = cp.array(self.geom.ofs, dtype=cp.int32)
-        self.timer.add('Transfers to GPU')
+        cpnph = cp.array(self.geom.nph, dtype=cp.uint64)
+        cpofs = cp.array(self.geom.ofs, dtype=cp.uint64)
+        self.timer.add('Transfers ->')
         
         ll = np.arange(0,self.lmax_dlm+1,1)
         scaled = hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+        scaled = cp.array(scaled, dtype=np.complex)
         self.timer.add('dlm scaling')
         
-        synth_spin1_maps = _get_spin1maps(scaled, out_dev2)
-        cpspin1 = cp.array(synth_spin1_maps.flatten(), dtype=cp.double)
-        self.timer.add("synth_spin1_maps to GPU")
+        _spin__1___synth(scaled, spin1_theta, spin1_phi)
+        # print("Shape of spin1_theta: ", spin1_theta.shape)
+        # print("spin1_theta: ", spin1_theta)
+        # print("Shape of spin1_phi: ", spin1_theta.shape)
+        # print("spin1_phi: ", spin1_phi)
         
-        _synthCAR(cpgclm, cpCARmap)
+        _synthesis(cpgclm, cpCARmap)
+        # print("Shape of cpCARmap: ", cpCARmap.shape)
+        # print("cpCARmap: ", cpCARmap)
         
-        cpdoublemap = _CAR2dmap(cpCARmap.flatten(), ntheta, nphi)
+        _doubling(cpCARmap.flatten(), np.int(ntheta), np.int(nphi), doubledmap)
+        # print("Shape of doubledmap: ", doubledmap.shape)
+        # print("doubledmap: ", doubledmap)
         
-        cpfc = _C2C(cpdoublemap, out_dev2)
+        cpfc = _C2C(doubledmap)
+        # print("Shape of cpfc: ", cpfc.shape)
+        # print("cpfc: ", cpfc)
         
-        ptg = _getdeflectedgrid(cpspin1, cpt, cpphi0, cpnph, cpofs, host_res)
+        _pointing(spin1_theta, spin1_phi,cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
+        # print("Shape of doubledmap: ", doubledmap.shape)
+        # print("doubledmap: ", doubledmap)
         
-        deflectedmap = _nufft(cpfc, ptg)
+        deflectedmap = _nufft(cpfc.reshape(2*ntheta,-1), pointing_theta, pointing_phi)
+        cpCARmap.get()
+        self.timer.add('Transfer <-')
         if timing:
             self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
+            print(self.timer)
+        
         print("stored new data")
         # return deflectedmap.get().real.flatten()
 
