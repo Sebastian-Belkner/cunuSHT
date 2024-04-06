@@ -73,21 +73,19 @@ class CPU_SHT_DUCC_transformer():
 
 class CPU_SHT_SHTns_transformer():
     def __init__(self, geominfo):
-        self.geom = geometry.get_geom(geominfo)
         self.set_geometry(geominfo)
 
 
     def set_geometry(self, geominfo):
-        # TODO set_geometry is more a constructor + set_grid in shtns
-        # self.geom = geometry.get_geom(geom_desc)
-        self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
-            self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
-            # self.constructor.set_grid(flags=shtns.sht_reg_dct + shtns.SHT_THETA_CONTIGUOUS)
+            self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
+            geominfo[1].pop('lmax')
+            geominfo[1].pop('mmax')
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
+        self.geom = geometry.get_geom(geominfo)
         self.theta_contiguous = True
            
         

@@ -183,11 +183,23 @@ class GPU_cufinufft_transformer(deflection):
             
         self.geominfo = geominfo
         self.set_geometry(geominfo)
-        if 'mmax' in geominfo[1]:
-            del geominfo[1]['mmax']
         self.nufftgeom = geometry.get_geom(geominfo)
         deflection_kwargs.update({'geom':self.nufftgeom})    
         super().__init__(**deflection_kwargs)
+        
+        if False: #not debug:
+            # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
+            self.ntheta_CAR = 2*ducc0.fft.good_size(geominfo[1]['lmax'] + 2)
+            self.nphihalf_CAR = 2*ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
+            self.nphi_CAR = 2 * self.nphihalf_CAR
+        else:
+            self.ntheta_CAR = 2*(geominfo[1]['lmax']+1)
+            self.nphihalf_CAR = 2*(geominfo[1]['lmax']+1)
+            self.nphi_CAR = 2 * self.nphihalf_CAR
+        self.geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
+        print(self.geominfo_CAR)
+        print(30*"--")
+        self.cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(self.geominfo_CAR)
 
 
     def __getattr__(self, name):
@@ -199,7 +211,9 @@ class GPU_cufinufft_transformer(deflection):
         self.nufftgeom = geometry.get_geom(geominfo)
         self.set_geometry(geominfo)
 
-      
+    @debug_decorator
+    @timing_decorator
+    @shape_decorator
     def dlm2pointing(self, dlm, pointing_theta, pointing_phi):
         
         @debug_decorator
@@ -231,9 +245,10 @@ class GPU_cufinufft_transformer(deflection):
 
         _spin__1___synth(self, scaled, spin1_theta, spin1_phi)
         _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
+        return tuple([pointing_theta, pointing_phi])
         
 
-    def gclm2lenmap_cupy(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, cc_transformer=None, mode=0):
+    def gclm2lenmap_cupy(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, mode=0):
         """
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
         so no transfers needed to CPU between them.
@@ -267,27 +282,12 @@ class GPU_cufinufft_transformer(deflection):
             
             nthreads = self.nthreads if nthreads is None else nthreads
             gclm = np.atleast_2d(gclm)
-            lmax_unl = Alm.getlmax(gclm[0].size, mmax)
-            if mmax is None:
-                mmax = lmax_unl
             if self.single_prec and gclm.dtype != np.complex64:
                 gclm = gclm.astype(np.complex64)
-
-            if False: #not debug:
-                # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
-                ntheta = ducc0.fft.good_size(lmax_unl + 2)
-                nphihalf = ducc0.fft.good_size(lmax_unl + 1)
-                nphi = 2 * nphihalf
-            else:
-                ntheta = lmax+1
-                nphihalf = lmax+1
-                nphi = 2 * nphihalf
-            CARmap = cp.empty((cc_transformer.constructor.nlat, cc_transformer.constructor.nphi), dtype=np.double)
-            CARdmap = cp.zeros(2*self.geom.npix(), dtype=np.double)
             gclm = cp.array(gclm, dtype=np.complex)
             self.timing = timing
             self.debug = debug
-            return gclm, CARmap, CARdmap, lmax, mmax, ntheta, nphihalf, nphi
+            return gclm
         
         @debug_decorator
         @timing_decorator
@@ -295,7 +295,7 @@ class GPU_cufinufft_transformer(deflection):
         def _synthesis(self, gclm, out):
             """In goes a (1,nalm) gclm, out comes a (1,nalm) in out
             """
-            cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            self.cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
             return tuple([out])
 
         @debug_decorator
@@ -338,7 +338,9 @@ class GPU_cufinufft_transformer(deflection):
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap_cupy()')
         self.timing, self.debug = None, None
-        gclm, CARmap, CARdmap, lmax, mmax, ntheta, nphihalf, nphi = _setup(self, gclm, lmax, mmax, mode, nthreads)
+        gclm = _setup(self, gclm, lmax, mmax, mode, nthreads)
+        CARmap = cp.empty((self.cc_transformer.constructor.nlat, self.cc_transformer.constructor.nphi), dtype=np.double)
+        CARdmap = cp.zeros(2*self.cc_transformer.constructor.nlat*self.cc_transformer.constructor.nphi, dtype=np.double)
         
         if pointing_theta is None or pointing_phi is None:
             pointing_theta = cp.zeros(self.geom.npix(), dtype=cp.double)
@@ -347,9 +349,10 @@ class GPU_cufinufft_transformer(deflection):
         
         fc, lenmap = None, None #TODO decide if these preallocated or not
         _synthesis(self, gclm, CARmap)
-        _doubling(self, CARmap.flatten(), np.int(ntheta), np.int(nphi), CARdmap)
+        print(CARmap)
+        _doubling(self, CARmap.flatten(), np.int(self.ntheta_CAR), np.int(self.nphi_CAR), CARdmap)
         fc = _C2C(self, CARdmap, fc)[0]
-        lenmap = _nuFFT(self, fc.reshape(2*ntheta,-1), pointing_theta, pointing_phi, lenmap)[0]
+        lenmap = _nuFFT(self, fc.reshape(2*self.ntheta_CAR,-1), pointing_theta, pointing_phi, lenmap)[0]
         result = lenmap[0].get()
         self.timer.add('Transfer <-')
         

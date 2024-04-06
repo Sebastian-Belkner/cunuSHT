@@ -514,7 +514,7 @@ class CPU_DUCCnufft_transformer(deflection):
             if self.single_prec and gclm.dtype != np.complex64:
                 gclm = gclm.astype(np.complex64)
 
-            if False: #not debug:
+            if True: #not debug:
                 # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
                 ntheta = ducc0.fft.good_size(lmax_unl + 2)
                 nphihalf = ducc0.fft.good_size(lmax_unl + 1)
@@ -525,6 +525,7 @@ class CPU_DUCCnufft_transformer(deflection):
                 nphi = 2 * nphihalf
             self.timing = timing
             self.debug = debug
+            print("ntheta: ", ntheta, "nphihalf: ", nphihalf, "nphi: ", nphi, "lmax_unl: ", lmax_unl, "mmax: ", mmax)
             return gclm, lmax, lmax_unl, mmax, ntheta, nphihalf, nphi
          
         @debug_decorator
@@ -554,7 +555,7 @@ class CPU_DUCCnufft_transformer(deflection):
         @debug_decorator
         @timing_decorator
         @shape_decorator
-        def _c2c(self, map_dfs, spin, out):
+        def _C2C(self, map_dfs, spin, out):
             if spin == 0:
                 tmp = np.empty(map_dfs.shape, dtype=ctype[map_dfs.dtype])
                 map_dfs = ducc0.fft.c2c(map_dfs.copy(), axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
@@ -567,7 +568,7 @@ class CPU_DUCCnufft_transformer(deflection):
         @timing_decorator
         @shape_decorator
         def _nuFFT(self, map_dfs, theta, phi, out):
-            out = ducc0.nufft.u2nu(grid=map_dfs, coord=np.array([theta,phi]).T, forward=False, epsilon=self.epsilon, nthreads=self.nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
+            out = ducc0.nufft.u2nu(grid=map_dfs.T, coord=np.array([phi,theta]).T, forward=False, epsilon=self.epsilon, nthreads=self.nthreads, verbosity=self.verbosity, periodicity=2*np.pi, fft_order=True)
             return tuple([out])
         
         @debug_decorator
@@ -592,14 +593,14 @@ class CPU_DUCCnufft_transformer(deflection):
         if pointing_theta is None or pointing_phi is None:
             pointing_theta = np.zeros(self.geom.npix(), dtype=np.double)
             pointing_phi = np.zeros(self.geom.npix(), dtype=np.double)
-            self.dlm2pointing(dlm, mmax, pointing_theta, pointing_phi)
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm, mmax, pointing_theta, pointing_phi)
             
         out = None
         map = _synthesis(self, gclm, out)[0]
         out = None
         map_dfs = _doubling(self, map, ntheta, nphi, out)[0]
         out = None
-        map_dfs = _c2c(self, map_dfs, spin, out)[0]
+        map_dfs = _C2C(self, map_dfs, spin, out)[0]
         lenmap = _nuFFT(self, map_dfs, pointing_theta, pointing_phi, out)[0]
         lenmap = _rotate(self, lenmap)[0]
         
