@@ -17,13 +17,18 @@ class GPU_SHTns_transformer():
         # self.geom = geometry.get_geom(geom_desc)
         self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
+            nlat = 2*int(geominfo[1]['ntheta']-1)+1
+            nphi = 2*int(geominfo[1]['nphi']-1)+1
             print(30*"===")
-            print(int(geominfo[1]['ntheta']-1), int(geominfo[1]['nphi']-1))
+            print(int(geominfo[1]['ntheta']-1), int(geominfo[1]['nphi']-1), nlat, nphi)
             print(30*"===")
             self.constructor = shtns.sht(int(geominfo[1]['ntheta']-1), int(geominfo[1]['ntheta']-1))
             # sht_reg_poles only this
-            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
-            # self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
+            self.constructor.set_grid(
+                flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS) # , nlat=nlat, nphi=nphi
+            print(30*"- - -")
+            print(self.constructor.print_info())
+            print(30*"- - -")          
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
