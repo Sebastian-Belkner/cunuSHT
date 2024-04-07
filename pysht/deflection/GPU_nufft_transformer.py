@@ -241,7 +241,7 @@ class GPU_cufinufft_transformer(deflection):
         cpofs = cp.array(self.geom.ofs, dtype=cp.uint64)
         spin1_theta = cp.zeros(self.geom.npix(), dtype=cp.double)
         spin1_phi = cp.zeros(self.geom.npix(), dtype=cp.double)
-        self.timer.add('dlm2pointing - Allocation')
+        self.timer.add('dlm2pointing - allocation')
 
         _spin__1___synth(self, scaled, spin1_theta, spin1_phi)
         _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
@@ -349,7 +349,6 @@ class GPU_cufinufft_transformer(deflection):
         
         fc, lenmap = None, None #TODO decide if these preallocated or not
         _synthesis(self, gclm, CARmap)
-        print(CARmap)
         _doubling(self, CARmap.flatten(), np.int(self.ntheta_CAR), np.int(self.nphi_CAR), CARdmap)
         fc = _C2C(self, CARdmap, fc)[0]
         lenmap = _nuFFT(self, fc.reshape(2*self.ntheta_CAR,-1), pointing_theta, pointing_phi, lenmap)[0]

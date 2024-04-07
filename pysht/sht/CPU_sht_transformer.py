@@ -46,8 +46,6 @@ class CPU_SHT_DUCC_transformer():
                 m[:, of:of + npi] *= w
         if alm is not None:
             assert alm.shape[-1] == utils_hp.Alm.getsize(lmax, mmax)
-        # print("map={map}, theta={theta}, nphi={nphi}, phi0={phi0}, nthreads={nthreads}, ringstart={ringstart}, alm={alm}".format(map=m.shape, theta=self.geom.theta.shape, nphi=self.geom.nph.shape, phi0=self.geom.phi0.shape,
-                                #  nthreads=nthreads, ringstart=self.geom.ofs, alm=alm) )
         return ducc_adjoint_synthesis(map=m, theta=self.geom.theta, lmax=lmax, mmax=mmax, nphi=self.geom.nph, spin=spin, phi0=self.geom.phi0,
                                  nthreads=nthreads, alm=alm, ringstart=self.geom.ofs, **kwargs)
         

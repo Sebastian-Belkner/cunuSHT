@@ -14,7 +14,7 @@ print('backends: {}'.format(backends))
 if backends == ['GPU']:
     solvers = ['cufinufft']
 else:
-    solvers = ['duccnufft']
+    solvers = ['lenspyx']
 
 sht_solver = 'shtns'
 # lmaxs = np.array([n*256-1 for n in np.arange(1,15)])
@@ -42,16 +42,15 @@ for lmax in lmaxs:
         'planned':False
     }
     geominfo_CAR = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
+    defres = {}
     for solver in solvers:
         for backend in backends:
             if backend == 'GPU':
                 solvers = ['cufinufft']
                 sht_solver = 'shtns' # 'shtns'
-                tCAR = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_CAR)
             elif backend == 'CPU':
-                solvers = ['duccnufft']
+                solvers = ['lenspyx'] # duccnufft
                 sht_solver = 'ducc' # 'shtns'
-                tCAR = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_CAR)
             for mode in ['nuFFT']:
                 print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
                 t = pysht.get_transformer(solver, mode, backend)
@@ -60,9 +59,15 @@ for lmax in lmaxs:
                 print("\n----Testing function gclm2lenmap...----")
                 print("\n----lmax: {}, epsilon: {}----".format(lmax, deflection_kwargs['epsilon']))
                 if backend == 'CPU':
-                    defres = t.gclm2lenmap(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, cc_transformer=tCAR, HAS_DUCCPOINTING=True, mode=1)
+                    if solver == 'lenspyx':
+                        defres.update({
+                            backend: t.gclm2lenmap(
+                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
+                    else:
+                        defres.update({
+                            backend: t.gclm2lenmap(
+                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
                 else:
-                    defres = t.gclm2lenmap_cupy(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, cc_transformer=tCAR, HAS_DUCCPOINTING=True, mode=1)
+                    defres = t.gclm2lenmap_cupy(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)
                 # FIXME after return, sometimes segmentation fault. Perhaps GPU not properly released
-                print(defres)
                 # print('\n{} gclm2lenmap() time is: {:.3f} ms'.format(backends[0], (t2-t1)*100))

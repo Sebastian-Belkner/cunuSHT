@@ -72,7 +72,6 @@ class GPU_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
-        # print("inside synthesis_der1_cupy", gclm.shape)
         self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 
     def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):

@@ -141,7 +141,6 @@ class deflection:
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
-                # print("theta=", tht, "phi0=", phi0, "nphi=", nph, "ringstart=", ofs, "deflect=", d1.T, "calc_rotation=", calc_rotation, "nthreads=", self.nthreads)
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
                                                         calc_rotation=calc_rotation, nthreads=self.nthreads)
                 if calc_rotation:
@@ -283,7 +282,6 @@ class CPU_finufft_transformer(deflection):
 
         # go to Fourier space
         if spin == 0:
-            print('map_dfs.shape: ', map_dfs.shape)
             tmp = np.empty(map_dfs.shape, dtype=np.complex128)
             map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
             del tmp
@@ -314,10 +312,6 @@ class CPU_finufft_transformer(deflection):
             self.timer.add('nuFFT')
             values = np.roll(np.real(v_))
             
-            # if self.shttransformer_desc == 'sthns':
-            #     values = np.roll(np.real(v_).reshape(*self.geom.constructor.spat_shape).T, int(self.geom.nph[0]/2-1), axis=1)
-            # else:
-            #     values = np.roll(np.real(v_).reshape(-1,self.geom.nph[0]), int(self.geom.nph[0]/2-1), axis=1)
         if debug:
             ret.append(np.copy(values))   
 
@@ -467,9 +461,7 @@ class CPU_DUCCnufft_transformer(deflection):
     @timing_decorator
     @debug_decorator
     def dlm2pointing(self, dlm, mmax, pointing_theta, pointing_phi):
-        self._get_ptg(dlm, mmax)
-        pointing_theta, pointing_phi = self.cacher.load('ptg').T
-        self.timer.add('get pointing')
+        pointing_theta, pointing_phi =  self._get_ptg(dlm, mmax).T
         return tuple([pointing_theta, pointing_phi])
 
     def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, pointing_theta=None, pointing_phi=None, mode=0):
@@ -708,11 +700,35 @@ class CPU_Lenspyx_transformer:
         self.shttransformer_desc = shttransformer_desc
         # FIXME propagate mmax
         self.lenspyx = lenspyx_deflection(lenspyx_get_geom(geominfo), deflection_kwargs['dlm'], geominfo[1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'], single_prec=deflection_kwargs['single_prec'])
+        self.backend = 'CPU'
         # self.lenspyx = self.lenspyx.change_dlm([deflection_kwargs['dlm'], None], mmax_dlm=deflection_kwargs['mmax_dlm'])
         
-    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None):
+    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, epsilon=1e-8, single_prec=True, dclm=None, mode=0):
         # FIXME check incoming lmax/mmax passing, and nthreads
-        return self.lenspyx.gclm2lenmap(gclm=gclm, backwards=backwards, mmax=mmax, spin=spin)
+        self.timing, self.debug = None, None
+        def _setup(self, mode):
+            if mode == 0:
+                print('Running in normal mode')
+                self.timing = False
+                self.debug = False
+            if mode == 1:
+                print('Running in timing mode')
+                self.timing = True
+                self.debug = False
+            if mode == 2:
+                print("Running in debug mode")
+                self.timing = False
+                self.debug = True
+            return self.timing, self.debug
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('lenspyx()')
+        self.timing, self.debug = _setup(self, mode)
+        res = self.lenspyx.gclm2lenmap(gclm=gclm, backwards=backwards, mmax=mmax, spin=spin)
+        self.timer.add('gclm2lenmap')
+        if self.timing:
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/CPU_lenspyx_{}'.format(lmax))
+            print(self.timer)
+            print("::timing:: stored new timing data")
 
     def lenmap2gclm(self, points:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
         print("geom name: {}".format(self.lenspyx.geom.name))

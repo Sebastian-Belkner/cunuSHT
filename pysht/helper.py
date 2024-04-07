@@ -47,7 +47,6 @@ def debug_decorator(func):
         res = func(*args, **kwargs)
         buff = []
         for re in res:
-            print('appending item')
             if type(re) == cp.ndarray:
                 buff.append(re.get())
             elif type(re) == np.ndarray:
