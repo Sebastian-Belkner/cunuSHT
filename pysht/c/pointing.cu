@@ -160,7 +160,7 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         // vec3 e_a(e_r.z * a_theta, a_phi, -e_r.x * a_theta); 
         for (int i = ringstart; i < ringstart+npixring; i++) {
             kl.e_a1[i] = kl.cost * spin1_theta[i];
-            kl.e_a2[i] = kl.phi[i];
+            kl.e_a2[i] = spin1_phi[i];
             kl.e_a3[i] = -kl.sint * spin1_theta[i];
         }
 

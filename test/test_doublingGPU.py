@@ -34,13 +34,23 @@ class TestUnit(unittest.TestCase):
     def test_unit_Cdoubling1D(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                nring = test_case[0]
+                ntheta = test_case[0]
                 npix = test_case[1]
-                nphi = npix//nring
-                CARmap = cp.random.randn((nring * nphi), dtype=np.double)
-                out = cp.empty(((2 * nring-2) * nphi), dtype=np.double)
-                Cdoubling_1D(CARmap, nring, nphi, out)
-                print(out.shape)
+                nphi = npix//ntheta
+                CARmap = cp.random.randn((ntheta * nphi), dtype=np.double)
+                out = cp.empty(((2 * ntheta-2) * nphi), dtype=np.double)
+                Cdoubling_1D(CARmap, ntheta, nphi, out)
+                
+                CARmap_py = np.arange((ntheta * nphi))
+                doubling1D_py = np.zeros((2 * ntheta-2, nphi))
+                CARmap_py = CARmap_py.reshape(ntheta, nphi)
+
+                nphihalf = nphi//2
+                doubling1D_py[:ntheta, :] = CARmap_py
+                doubling1D_py[ntheta:, :nphihalf] = doubling1D_py[ntheta-2:0:-1, nphihalf:]
+                doubling1D_py[ntheta:, nphihalf:] = doubling1D_py[ntheta-2:0:-1, :nphihalf]
+                
+                self.assertAlmostEquals(out, doubling1D_py)
                 
     @unittest.skip("Skipping this test method for now")
     def test_unit_Cdoubling_cparr_synth2D(self):

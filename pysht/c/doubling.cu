@@ -92,23 +92,24 @@ void CUdoubling_cparr2D(
 
 template <typename Scalar>
 __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
-    // map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
-    //idx is ntheta
+    //idx is ntheta of doubled map (idx = 2*ntheta-2)
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
     const size_t nphihalf = nphi / 2;
+    const size_t npixplusnphihalf = (2*ntheta-2)*nphi + nphihalf;
     if (idx < ntheta) {
-        // map_dfs[:ntheta, :] = map[0]
-        for (int j = 0; j < nphi; j++) {
+        if (idx < (ntheta+2)/2) {
+            for (int j = 0; j < nphi; j++) {
                 doubling1D[nphi*idx+j] = synth1D[nphi*idx+j];
-                // doubling1D[2*nphi*idx + j] = synth1D[nphi-j];
-                // doubling1D[2*nphi*idx + j] = 2.*synth1D[j];
+            }
         }
-        for (int j = 0; j < nphi/2; j++) {
-            doubling1D[2*nphi*idx+j] = synth1D[nphi*idx+j];
-        }
-        for (int j = nphi/2; j < nphi; j++) {
-            doubling1D[2*nphi*idx+j] = synth1D[nphi*idx+j-nphi/2];
+        if (idx >= (ntheta+2)/2) {
+            for (int j = 0; j < nphi; j++) {
+                if (j<nphihalf) {
+                    doubling1D[nphi*idx+j] = synth1D[npixplusnphihalf - idx*nphi + j];
+                } else {
+                    doubling1D[nphi*idx+j] = synth1D[npixplusnphihalf - (idx+1)*nphi + j];
+                }
+            }
         }
     }
 }
