@@ -119,7 +119,7 @@ template <typename Scalar>
 __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
     //idx is nring
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    double PI = 3.14159265359;
+    double PI = 3.141592653589793238;
     if (idx <= nring) {
         const int ringstart = ringstarts[idx];
         const int npixring = nphis[idx];
@@ -177,13 +177,13 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         for (int i = ringstart; i < ringstart+npixring; i++) {
             kl.npt[i] = atan2(sqrt(kl.np1[i]*kl.np1[i] + kl.np2[i]*kl.np2[i]), kl.np3[i]);
             kl.npp[i] = atan2(kl.np2[i], kl.np1[i]);
-            kl.npp[i] = (kl.npp[i] < 0.) ? (kl.npp[i] + 2.*PI) : kl.npp[i];
+            // kl.npp[i] = (kl.npp[i] < 0.) ? (kl.npp[i] + 2.*PI) : kl.npp[i];
         }
         
         // kl.phinew = (kl.phinew >= 2.*PI) ? (kl.phinew - 2.*PI) : kl.phinew;
         for (int i = ringstart; i < ringstart+npixring; i++) {
             pt[i] = kl.npt[i];
-            pp[i] = kl.phi[i] + kl.npp[i];
+            pp[i] = kl.phi[i] - kl.npp[i];
             pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
         }
     }
