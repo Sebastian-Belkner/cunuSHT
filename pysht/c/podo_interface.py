@@ -34,6 +34,7 @@ def Cdoubling_ptrs(pointings, nring, nphi):
     return cparr
 
 def Cdoubling_1D(synth1D, nring, nphi, out):
+    # print("Types: ", type(synth1D), type(nring), type(nphi), type(out))
     dopy.CUdoubling_cparr1D(synth1D, nring, nphi, out)
     
 def Cdoubling_cparr2D(synth2D, nring, nphi, out):

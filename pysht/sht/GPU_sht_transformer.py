@@ -1,6 +1,8 @@
+import os
 import numpy as np
 
 import shtns
+os.environ['SHTNS_VERBOSE']="2" #This is to make nlat ~ lmax to work
 import pysht.geometry as geometry
 from pysht.helper import shape_decorator
 
@@ -16,6 +18,8 @@ class GPU_SHTns_transformer():
         # self.geom = geometry.get_geom(geom_desc)
         
         if geominfo[0] == 'cc':
+            print('initializing shtns for CC in GPU_SHTns_transformer')
+            print("geominfo for CC in GPU_SHTns_transformer: ", geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(
                 flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS,
@@ -24,8 +28,10 @@ class GPU_SHTns_transformer():
             geominfo[1].pop('lmax')
             geominfo[1].pop('mmax')   
         else:
+            print('initializing shtns')
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
-            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)# nlat=geominfo[1]['nlat'], nphi=geominfo[1]['nphi'])
+            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)#, nlat=geominfo[1]['ntheta'], nphi=geominfo[1]['nphi'])
+            print('initializing shtns done')
         self.geom = geometry.get_geom(geominfo)
         self.theta_contiguous = True
         

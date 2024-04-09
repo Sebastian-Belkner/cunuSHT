@@ -43,31 +43,32 @@ for lmax in lmaxs:
     }
     geominfo_CAR = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
     defres = {}
+    for backend in backends:
+        if backend == 'GPU':
+            solvers = ['cufinufft']
+            sht_solver = 'shtns' # 'shtns'
+        elif backend == 'CPU':
+            solvers = ['duccnufft'] # duccnufft #lenspyx
+            sht_solver = 'ducc' # 'shtns'
     for solver in solvers:
-        for backend in backends:
-            if backend == 'GPU':
-                solvers = ['cufinufft']
-                sht_solver = 'shtns' # 'shtns'
-            elif backend == 'CPU':
-                solvers = ['lenspyx'] # duccnufft
-                sht_solver = 'ducc' # 'shtns'
-            for mode in ['nuFFT']:
-                print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
-                t = pysht.get_transformer(solver, mode, backend)
-                t = t(sht_solver, geominfo, deflection_kwargs)
-                # t.set_geometry(geominfo)
-                print("\n----Testing function gclm2lenmap...----")
-                print("\n----lmax: {}, epsilon: {}----".format(lmax, deflection_kwargs['epsilon']))
-                if backend == 'CPU':
-                    if solver == 'lenspyx':
-                        defres.update({
-                            backend: t.gclm2lenmap(
-                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
-                    else:
-                        defres.update({
-                            backend: t.gclm2lenmap(
-                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
+        for mode in ['nuFFT']:
+            print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
+            t = pysht.get_transformer(solver, mode, backend)
+            t = t(sht_solver, geominfo, deflection_kwargs)
+            # t.set_geometry(geominfo)
+            print("\n----Testing function gclm2lenmap...----")
+            print("\n----lmax: {}, epsilon: {}----".format(lmax, deflection_kwargs['epsilon']))
+            if backend == 'CPU':
+                if solver == 'lenspyx':
+                    defres.update({
+                        backend: t.gclm2lenmap(
+                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
                 else:
-                    defres = t.gclm2lenmap_cupy(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)
-                # FIXME after return, sometimes segmentation fault. Perhaps GPU not properly released
-                # print('\n{} gclm2lenmap() time is: {:.3f} ms'.format(backends[0], (t2-t1)*100))
+                    defres.update({
+                        backend: t.gclm2lenmap(
+                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
+            else:
+                # defres = t.gclm2lenmap(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)
+                defres = t.gclm2lenmap_cupy(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)
+            # FIXME after return, sometimes segmentation fault. Perhaps GPU not properly released
+            # print('\n{} gclm2lenmap() time is: {:.3f} ms'.format(backends[0], (t2-t1)*100))

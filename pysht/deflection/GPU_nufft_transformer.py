@@ -187,18 +187,16 @@ class GPU_cufinufft_transformer(deflection):
         deflection_kwargs.update({'geom':self.nufftgeom})    
         super().__init__(**deflection_kwargs)
         
-        if False: #not debug:
-            # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
-            self.ntheta_CAR = 2*ducc0.fft.good_size(geominfo[1]['lmax'] + 2)
-            self.nphihalf_CAR = 2*ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
+        if True: #not debug:
+            # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
+            self.ntheta_CAR = (ducc0.fft.good_size(geominfo[1]['lmax'] + 2) + 3) // 4 * 4
+            self.nphihalf_CAR = ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
             self.nphi_CAR = 2 * self.nphihalf_CAR
         else:
-            self.ntheta_CAR = 2*(geominfo[1]['lmax']+1)
-            self.nphihalf_CAR = 2*(geominfo[1]['lmax']+1)
+            self.ntheta_CAR = (geominfo[1]['lmax']+1)
+            self.nphihalf_CAR = (geominfo[1]['lmax']+1)
             self.nphi_CAR = 2 * self.nphihalf_CAR
         self.geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
-        print(self.geominfo_CAR)
-        print(30*"--")
         self.cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(self.geominfo_CAR)
 
 
@@ -244,7 +242,7 @@ class GPU_cufinufft_transformer(deflection):
         self.timer.add('dlm2pointing - allocation')
 
         _spin__1___synth(self, scaled, spin1_theta, spin1_phi)
-        _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
+        _pointing(self, spin1_theta.reshape(self.geom.nph[0],-1).T.flatten(), spin1_phi.reshape(self.geom.nph[0],-1).T.flatten(), cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
         return tuple([pointing_theta, pointing_phi])
         
 
@@ -284,7 +282,6 @@ class GPU_cufinufft_transformer(deflection):
             gclm = np.atleast_2d(gclm)
             if self.single_prec and gclm.dtype != np.complex64:
                 gclm = gclm.astype(np.complex64)
-            gclm = cp.array(gclm, dtype=np.complex)
             self.timing = timing
             self.debug = debug
             return gclm
@@ -309,50 +306,43 @@ class GPU_cufinufft_transformer(deflection):
         @timing_decorator
         @shape_decorator
         def _C2C(self, map, out):
-            def from_cupy(arr):
-                shape = arr.shape
-                dtype = arr.dtype
-                def alloc(x):
-                    return arr.data.ptr
-                if arr.flags.c_contiguous:
-                    order = 'C'
-                elif arr.flags.f_contiguous:
-                    order = 'F'
-                else:
-                    raise ValueError('arr order cannot be determined')
-                return gpuarray.GPUArray(shape=shape,
-                                        dtype=dtype,
-                                        allocator=alloc,
-                                        order=order)
-            out = scipy.fft.ifft(map)
+            out = scipy.fft.fft2(map, norm='forward')
             return tuple([out])
         
-        @debug_decorator
+        # @debug_decorator
         @timing_decorator
-        @shape_decorator
+        # @shape_decorator
         def _nuFFT(self, fc, ptg_theta, ptg_phi, result):
             result = cufinufft.nufft2d2(x=ptg_theta, y=ptg_phi, data=fc, isign=1)
-            return tuple([result])
+            return result
+            # return tuple([result])
             # return cufinufft.nufft2d2(x=ptg_theta, y=ptg_phi, data=fc, isign=1)
 
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap_cupy()')
         self.timing, self.debug = None, None
         gclm = _setup(self, gclm, lmax, mmax, mode, nthreads)
-        CARmap = cp.empty((self.cc_transformer.constructor.nlat, self.cc_transformer.constructor.nphi), dtype=np.double)
-        CARdmap = cp.zeros(2*self.cc_transformer.constructor.nlat*self.cc_transformer.constructor.nphi, dtype=np.double)
+        gclm = cp.array(gclm, dtype=np.complex)
+        ntheta_dCAR, nphi_dCAR = 2*self.ntheta_CAR-2, self.nphi_CAR
+        CARmap = cp.empty((self.ntheta_CAR, self.nphi_CAR), dtype=np.double)
+        CARdmap = cp.zeros((2*self.cc_transformer.constructor.nlat-2)*self.cc_transformer.constructor.nphi, dtype=np.double)
+        self.timer.add('Transfers ->')
+        fc, lenmap = None, None #TODO decide if these preallocated or not
         
         if pointing_theta is None or pointing_phi is None:
             pointing_theta = cp.zeros(self.geom.npix(), dtype=cp.double)
             pointing_phi = cp.zeros(self.geom.npix(), dtype=cp.double)
             self.dlm2pointing(dlm, pointing_theta, pointing_phi)
         
-        fc, lenmap = None, None #TODO decide if these preallocated or not
         _synthesis(self, gclm, CARmap)
-        _doubling(self, CARmap.flatten(), np.int(self.ntheta_CAR), np.int(self.nphi_CAR), CARdmap)
-        fc = _C2C(self, CARdmap, fc)[0]
-        lenmap = _nuFFT(self, fc.reshape(2*self.ntheta_CAR,-1), pointing_theta, pointing_phi, lenmap)[0]
-        result = lenmap[0].get()
+        _doubling(self, CARmap.reshape(self.nphi_CAR,-1).T.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
+        fc = _C2C(self, CARdmap.reshape(ntheta_dCAR,-1).T, fc)[0]
+        fc = cp.array(np.fft.fftshift(fc.get(), axes=(0,1)))
+        self.timer.add('FFTshift')
+        result = cufinufft.nufft2d2(x=pointing_theta, y=pointing_phi, data=fc, isign=1)
+        self.timer.add("nuFFT init")
+        lenmap = _nuFFT(self, fc, pointing_phi, pointing_theta, lenmap)
+        result = lenmap.get()
         self.timer.add('Transfer <-')
         
         if self.timing:
@@ -366,7 +356,7 @@ class GPU_cufinufft_transformer(deflection):
         return result
 
     # @profile
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, cc_transformer=None, HAS_DUCCPOINTING=True, mode=0):
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, HAS_DUCCPOINTING=True, mode=0):
         """GPU algorithm for spin-n remapping using cufinufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -419,10 +409,10 @@ class GPU_cufinufft_transformer(deflection):
                 _type_: _description_
             """
             # shtns cc_transformer returns theta contiguous 1d array
-            map = cc_transformer.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            map = self.cc_transformer.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
             
             # the double .T are only needed to get the added dimension as the leading dimension
-            if cc_transformer.theta_contiguous:
+            if self.cc_transformer.theta_contiguous:
                 map = np.atleast_3d(map.reshape(-1, lmax+1)).T
             else:
                 map = np.atleast_3d(map.reshape(lmax+1,-1).T).T
@@ -502,7 +492,7 @@ class GPU_cufinufft_transformer(deflection):
             if ptg is None:
                 synth_spin1_map = self._build_d1(dlm, lmax, mmax)
                 # self.timer.add('spin-1 maps')
-                if True:
+                if False:
                     ptg = self.pointing_GPU(synth_spin1_map)
                     ptg = self.cacher.load('ptg')
                 else:
@@ -516,16 +506,12 @@ class GPU_cufinufft_transformer(deflection):
         def _nufft(fc, ptg, smap):
             fcshifted = np.fft.fftshift(fc, axes=(0,1))
             self.timer.add('fftshift')
-            # fcshifted = fcshifted.astype(np.complex128)
             data_ = cp.array(fcshifted)
             x_ = cp.array(ptg[:,0])
             y_ = cp.array(ptg[:,1])
-            # data_ = dgpu #cp.array(fcshifted)
-            # x_ = cp.array(ptg[:smap.shape[0]])
-            # y_ = cp.array(ptg[:smap.shape[0]])
-            # self.timer.add('cupy array creation')
+            self.timer.add('nuFFT - data transfer')
             v_ = cufinufft.nufft2d2(x=x_, y=y_, data=data_, isign=1)
-            self.timer.add('nuFFT')
+            self.timer.add('nuFFT - calc')
             values = np.real(v_.get())
             if debug:
                 self.ret.append(np.copy(values))

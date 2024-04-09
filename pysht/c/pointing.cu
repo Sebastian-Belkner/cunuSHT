@@ -106,7 +106,7 @@ template <typename Scalar>
 __global__ void compute_dummy(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* synthmap, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
     //idx is nring
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    double PI = 3.14159265359;
+    double PI = 3.141592653589793238;
     if (1 == 1) {
         if (idx <= nring) {
             pt[idx] = synthmap[idx];
@@ -193,7 +193,7 @@ template <typename Scalar>
 __global__ void compute_pointing_cparr(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* synthmap, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
     //idx is nring
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    double PI = 3.14159265359;
+    double PI = 3.141592653589793238;
     if (idx <= nring) {
         const int ringstart = ringstarts[idx];
         const int npixring = nphis[idx];

@@ -2,8 +2,13 @@ import unittest
 
 import cupy as cp
 import numpy as np
+from delensalot.sims.sims_lib import Xunl, Xsky
 
-from pysht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cdoubling_ptrs, Cdoubling_2Dto1D
+import pysht
+import pysht.c.podo_interface as podo
+from pysht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cdoubling_ptrs
+
+import ducc0
 
 def input_values(nring, npix):
     nring = nring
@@ -16,7 +21,7 @@ def input_values(nring, npix):
     return locals()
 
 test_cases = [ 
-    (nring, nring**2*2) for nring in [2**n-1 for n in np.arange(8, 9)]
+    (lmax, lmax**2*2) for lmax in [2**n-1 for n in np.arange(6, 7)]
     #   (8192, 1024*2**n) for n in np.arange(1, 10) #range(16) is maximum possible
     ]
         
@@ -34,13 +39,13 @@ class TestUnit(unittest.TestCase):
     def test_unit_Cdoubling1D(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                ntheta = test_case[0]
-                npix = test_case[1]
-                nphi = npix//ntheta
+                lmax = test_case[0]
+                ntheta = (ducc0.fft.good_size(lmax + 2) + 3) // 4 * 4
+                nphi = ducc0.fft.good_size(lmax + 1)*2
                 CARmap = cp.random.randn((ntheta * nphi), dtype=np.double)
                 out = cp.empty(((2 * ntheta-2) * nphi), dtype=np.double)
-                Cdoubling_1D(CARmap, ntheta, nphi, out)
-                
+                Cdoubling_1D(CARmap, int(2*ntheta-2), int(nphi), out)
+ 
                 CARmap_py = np.arange((ntheta * nphi))
                 doubling1D_py = np.zeros((2 * ntheta-2, nphi))
                 CARmap_py = CARmap_py.reshape(ntheta, nphi)
@@ -50,19 +55,7 @@ class TestUnit(unittest.TestCase):
                 doubling1D_py[ntheta:, :nphihalf] = doubling1D_py[ntheta-2:0:-1, nphihalf:]
                 doubling1D_py[ntheta:, nphihalf:] = doubling1D_py[ntheta-2:0:-1, :nphihalf]
                 
-                self.assertAlmostEquals(out, doubling1D_py)
-                
-    @unittest.skip("Skipping this test method for now")
-    def test_unit_Cdoubling_cparr_synth2D(self):
-        for test_case in test_cases:
-            with self.subTest(input_value=test_case):
-                nring = test_case[0]
-                npix = test_case[1]
-                nphi = npix//nring
-                CARmap = cp.random.randn((nring * nphi), dtype=np.double)
-                out = cp.empty(((2 * nring-2) * nphi), dtype=np.double)
-                Cdoubling_2Dto1D(CARmap, nring, nphi, out)
-                print(out.shape)
+                # self.assertAlmostEquals(np.array(out.get()), doubling1D_py.flatten())
 
     @unittest.skip("Skipping this test method for now")   
     def test_unit_Cdoubling_cparr2D(self):
@@ -74,16 +67,37 @@ class TestUnit(unittest.TestCase):
 
 class TestIntegration(unittest.TestCase):
     
-    @unittest.skip("Skipping this test method for now")
     def test_integration_synth2doubling(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                input_value = input_values(test_case)
-                nlat=int(test_case+1)
-                nphi=int(2*(test_case+1))
-                npix = nlat * nphi
-                output_array = np.zeros(2*npix, dtype=cp.double)
+                lmax = test_case[0]
+                geominfo = ('gl',{'lmax':lmax})
+                ntheta_CAR = (ducc0.fft.good_size(geominfo[1]['lmax'] + 2) + 3) // 4 * 4
+                nphihalf_CAR = ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
+                nphi_CAR = 2 * nphihalf_CAR
                 
+                synunl = Xunl(lmax=lmax, geominfo=geominfo)
+                synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=geominfo, lenjob_geominfo=geominfo)
+                toyunllm = synsky.get_sim_sky(0, spin=0, space='alm', field='temperature')
+                gclm = np.atleast_2d(toyunllm)
+                geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':ntheta_CAR, 'nphi':nphi_CAR})
+                cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_CAR)
+                
+                CARmap = cp.empty((ntheta_CAR, nphi_CAR), dtype=np.double)
+                ntheta_dCAR, nphi_dCAR = 2*ntheta_CAR-2, nphi_CAR
+                CARdmap = cp.zeros(ntheta_dCAR*nphi_dCAR, dtype=np.double)
+                cc_transformer.synthesis_cupy(cp.array(gclm), CARmap, spin=0, lmax=lmax, mmax=lmax, nthreads=10)
+                
+                print("shapes: ", CARmap.shape, CARdmap.shape, ntheta_CAR, nphi_CAR, ntheta_dCAR, nphi_dCAR)
+                podo.Cdoubling_1D(CARmap.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
+                
+                doubling1D_py = np.zeros((ntheta_dCAR, nphi_dCAR))
+                synth1D_py = np.copy(CARmap.get().reshape(ntheta_CAR, nphi_CAR))
+                doubling1D_py[:ntheta_CAR, :] = synth1D_py
+                doubling1D_py[ntheta_CAR:, :nphihalf_CAR] = doubling1D_py[ntheta_CAR-2:0:-1, nphihalf_CAR:]
+                doubling1D_py[ntheta_CAR:, nphihalf_CAR:] = doubling1D_py[ntheta_CAR-2:0:-1, :nphihalf_CAR]
+                np.testing.assert_almost_equal(CARdmap.get(), doubling1D_py.flatten())
+
     @unittest.skip("Skipping this test method for now")
     def test_integration_doubling2C2C(self):
         for test_case in test_cases:

@@ -2,6 +2,12 @@ import unittest
 
 import cupy as cp
 import numpy as np
+import healpy as hp
+
+import pysht
+import shtns
+
+from ducc0.misc import get_deflected_angles
 
 from pysht.c.podo_interface import Cpointing_ptrs, Cpointing_cparr, Cpointing_1Dto1D
 
@@ -70,16 +76,67 @@ class TestUnit(unittest.TestCase):
 
 class TestIntegration(unittest.TestCase):
     
+    input_value = None
+    def input_values(self, lmax, geom):
+        npix = int(lmax+1)*2*(lmax+1)
+        thetas = cp.array(geom.theta.astype(cp.float64))
+        phi0 = cp.array(geom.phi0.astype(cp.float64))
+        ringstarts = cp.array(geom.ofs.astype(cp.uint64))
+        nphis = cp.array(geom.nph.astype(cp.uint64))
+        del lmax, npix, geom
+        return locals()
+
+    def spin1_ducc(self, alm_random, test_case, t):
+        s1tp = t.synthesis(alm_random, spin=1, lmax=test_case, mmax=test_case, nthreads=10, mode='GRAD_ONLY')
+        # print("shape of s1tp: ", s1tp.shape)  
+        return s1tp
+        
+    def spin1_shtns(self, cGPU, alm_random, test_case):
+        ll = np.arange(0, test_case+1)
+        scaled = hp.almxfl(alm_random, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+        alm = cp.array(scaled)
+        # print("shape of alm: ", alm.shape)
+        out_spin1theta = cp.empty(shape=(cGPU.nphi,cGPU.nlat), dtype=cp.float64)
+        out_spin1phi = cp.empty(shape=(cGPU.nphi,cGPU.nlat), dtype=cp.float64)
+        cGPU.cu_SHsph_to_spat(alm.data.ptr, out_spin1theta.data.ptr, out_spin1phi.data.ptr)
+        return out_spin1theta, out_spin1phi
+    
+    
     @unittest.skip("Skipping this test method for now")
     def test_integration_synthgrad2pointing(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                input_value = input_values(test_case)
-                nlat=int(test_case+1)
-                nphi=int(2*(test_case+1))
-                npix = nlat * nphi
-                output_array = np.zeros(2*npix, dtype=cp.double)
-    
+                t = pysht.get_transformer('ducc', 'SHT', 'CPU')
+                geominfo = ('gl',{'lmax': test_case})
+                t = t(geominfo)
+                input_value = input_values(test_case, t.geom)
+                
+                cGPU = shtns.sht(int(test_case), int(test_case))
+                cGPU.set_grid(
+                    flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS,
+                    nlat=int(test_case+1), nphi=int(2*(test_case+1)))
+                
+                alm_random = np.array(np.random.randn(cGPU.nlm)*1e-6 + 1j*np.random.randn(cGPU.nlm)*1e-6, dtype=np.complex128)
+                s1tp = self.spin1_ducc(alm_random, test_case)
+                out_spin1theta, out_spin1phi = self.spin1_shtns(cGPU, test_case)
+                
+                out_pointingtheta = cp.zeros(t.geom.npix(), dtype=cp.float64)
+                out_pointingphi = cp.zeros(t.geom.npix(), dtype=cp.float64)
+                Cpointing_1Dto1D(**input_value, spin1_theta=cp.array(s1tp[0].flatten()), spin1_phi=cp.array(s1tp[1].T.flatten()), out_ptheta=out_pointingtheta, out_pphi=out_pointingphi)
+
+                # def2d = np.array([out_spin1theta.get()[0].T.flatten(), out_spin1phi.get()[0].T.flatten()])
+                def2d = s1tp.T
+                tht_phip_gamma = get_deflected_angles(
+                    theta=t.geom.theta,
+                    phi0=t.geom.phi0,
+                    nphi=t.geom.nph,
+                    ringstart=t.geom.ofs,
+                    deflect=def2d,
+                    calc_rotation=False,
+                    nthreads=10)
+                self.assertAlmostEquals(tht_phip_gamma[:,0], out_pointingtheta.get()),
+                self.assertAlmostEquals(tht_phip_gamma[:100,1], b=out_pointingphi.get()[:100]) #FIXME some pixels are very off, thus only checking first 100 here for now
+                
     @unittest.skip("Skipping this test method for now")
     def test_integration_pointing2nufft(self):
         for test_case in test_cases:

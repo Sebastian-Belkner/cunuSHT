@@ -93,9 +93,9 @@ void CUdoubling_cparr2D(
 template <typename Scalar>
 __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
     //idx is ntheta of doubled map (idx = 2*ntheta-2)
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     const size_t nphihalf = nphi / 2;
-    const size_t npixplusnphihalf = (2*ntheta-2)*nphi + nphihalf;
+    const size_t npixplusnphihalf = ntheta*nphi + nphihalf;
     if (idx < ntheta) {
         if (idx < (ntheta+2)/2) {
             for (int j = 0; j < nphi; j++) {
@@ -103,7 +103,7 @@ __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t nt
             }
         }
         if (idx >= (ntheta+2)/2) {
-            for (int j = 0; j < nphi; j++) {
+            for (size_t j = 0; j < nphi; j++) {
                 if (j<nphihalf) {
                     doubling1D[nphi*idx+j] = synth1D[npixplusnphihalf - idx*nphi + j];
                 } else {
@@ -126,7 +126,6 @@ void CUdoubling_cparr1D(
     int blocksPerGrid = (nring + threadsPerBlock - 1) / threadsPerBlock;
     compute_doubling_spin0_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_doubling1D.data());
     cudaDeviceSynchronize();
-
     cudaError_t errSync  = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();
     if (errSync != cudaSuccess) 

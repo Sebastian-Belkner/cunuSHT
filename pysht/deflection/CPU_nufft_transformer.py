@@ -248,7 +248,8 @@ class CPU_finufft_transformer(deflection):
 
         # transform slm to Clenshaw-Curtis map
         if not debug:
-            ntheta = ducc0.fft.good_size(lmax_unl + 2)
+            ntheta = (ducc0.fft.good_size(lmax_unl + 2) + 3) // 4 * 4
+            # ntheta = ducc0.fft.good_size(lmax_unl + 2)
             nphihalf = ducc0.fft.good_size(lmax_unl + 1)
             nphi = 2 * nphihalf
         else:
@@ -508,6 +509,7 @@ class CPU_DUCCnufft_transformer(deflection):
 
             if True: #not debug:
                 # FIXME this only works if CAR grid is initialized with good fft size, otherwise this clashes with doubling
+                # ntheta = (ducc0.fft.good_size(lmax_unl + 2) + 3) // 4 * 4
                 ntheta = ducc0.fft.good_size(lmax_unl + 2)
                 nphihalf = ducc0.fft.good_size(lmax_unl + 1)
                 nphi = 2 * nphihalf
@@ -550,7 +552,7 @@ class CPU_DUCCnufft_transformer(deflection):
         def _C2C(self, map_dfs, spin, out):
             if spin == 0:
                 tmp = np.empty(map_dfs.shape, dtype=ctype[map_dfs.dtype])
-                map_dfs = ducc0.fft.c2c(map_dfs.copy(), axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp)
+                map_dfs = ducc0.fft.c2c(map_dfs.copy(), axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp, forward=True)
                 del tmp
             else:
                 map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), inorm=2, nthreads=nthreads, out=map_dfs)
@@ -597,6 +599,7 @@ class CPU_DUCCnufft_transformer(deflection):
         lenmap = _rotate(self, lenmap)[0]
         
         if self.timing:
+            print(self.timer)
             self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/CPU_duccnufft_{}'.format(lmax))
         if self.debug:
             return self.ret
