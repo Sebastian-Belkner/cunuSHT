@@ -36,10 +36,12 @@ for lmax in lmaxs:
         'nthreads': 10,
         'dlm':toydlm,
         'mmax_dlm':lmax,
-        'epsilon':1e-5,
+        'epsilon':1e-10,
         'verbosity':0,
         'single_prec':False,
-        'planned':False
+        'planned':False,
+        'lenjob_geominfo': geominfo,
+        
     }
     geominfo_CAR = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
     defres = {}
@@ -62,7 +64,7 @@ for lmax in lmaxs:
                 if solver == 'lenspyx':
                     defres.update({
                         backend: t.gclm2lenmap(
-                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1)})
+                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, mode=1, ptg=None)})
                 else:
                     defres.update({
                         backend: t.gclm2lenmap(
