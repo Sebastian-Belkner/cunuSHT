@@ -21,8 +21,6 @@ typedef struct {
 } KernelLocals_lp;
 
 typedef struct {
-    double sint;
-    double cost;
     double *phi;
     double *philocs;
     double *sind_d, *a, *d;

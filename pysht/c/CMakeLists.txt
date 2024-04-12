@@ -17,9 +17,9 @@ find_package(nanobind CONFIG REQUIRED)
 
 enable_language(CUDA)
 nanobind_add_module(popy
+  # pointing.cpp  
   pointing.cu
   # pointing.h
-  # pointing.cpp
   # pointing.cuh
 )
 

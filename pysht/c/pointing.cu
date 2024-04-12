@@ -23,22 +23,6 @@ namespace nb = nanobind;
 using namespace nb::literals;
 
 
-// std::tuple<intptr_t, intptr_t> Cpointing_ptrs(intptr_t thetas_, intptr_t phi0_, intptr_t nphis_, intptr_t ringstarts_, intptr_t synthmap_, int nring, int npix, double *host_result){
-//     printf("pointing.cpp:: Cpointing_ptrs\n");
-//     KernelParams kp;
-//     kp.thetas = reinterpret_cast<double*>(thetas_);
-//     kp.phi0 = reinterpret_cast<double*>(phi0_);
-//     kp.nphis = reinterpret_cast<int*>(nphis_);
-//     kp.ringstarts = reinterpret_cast<int*>(ringstarts_);
-//     kp.synthmap = reinterpret_cast<double*>(synthmap_);
-//     kp.nring = nring;
-//     kp.npix = npix;
-
-//     auto devres = CUpointing_struct(kp);
-//     return std::make_tuple(reinterpret_cast<intptr_t>(std::get<0>(devres)),reinterpret_cast<intptr_t>(std::get<1>(devres)));
-// }
-
-
 __device__ double dev_power_element(double value, int exponent){
     double result = exponent > 1 ? value : 1;
     for (int i = 1; i < exponent; i++) {
@@ -116,7 +100,7 @@ __global__ void compute_dummy(Scalar* pt, Scalar* pp, const Scalar* thetas, cons
 }
 
 template <typename Scalar>
-__global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
+__global__ void compute_pointing_1Dto1D_stepbystep(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
     //idx is nring
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     double PI = 3.141592653589793238;
@@ -124,8 +108,8 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         const int ringstart = ringstarts[idx];
         const int npixring = nphis[idx];
         // kl.e_r(sin(theta(iring)), 0, cos(theta(iring)));
-        kl.sint = sin(thetas[idx]); 
-        kl.cost = cos(thetas[idx]);
+        double sint = sin(thetas[idx]); 
+        double cost = cos(thetas[idx]);
 
         // mav_apply([](auto np, auto &dp){dp=2.*pi/np;}, 1, nphi, res);
         for (int i = ringstart; i < ringstart+npixring; i++) {
@@ -159,16 +143,16 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
         }
         // vec3 e_a(e_r.z * a_theta, a_phi, -e_r.x * a_theta); 
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.e_a1[i] = kl.cost * spin1_theta[i];
+            kl.e_a1[i] = cost * spin1_theta[i];
             kl.e_a2[i] = spin1_phi[i];
-            kl.e_a3[i] = -kl.sint * spin1_theta[i];
+            kl.e_a3[i] = -sint * spin1_theta[i];
         }
 
         // kl.n_prime(kl.e_r * kl.cos_a + kl.e_a * kl.sin_d);
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.np1[i] = kl.sint * kl.cos_a[i] + kl.e_a1[i] * kl.sind_d[i];
+            kl.np1[i] = sint * kl.cos_a[i] + kl.e_a1[i] * kl.sind_d[i];
             kl.np2[i] = 0. - kl.e_a2[i] * kl.sind_d[i];
-            kl.np3[i] = kl.cost * kl.cos_a[i] + kl.e_a3[i] * kl.sind_d[i];
+            kl.np3[i] = cost * kl.cos_a[i] + kl.e_a3[i] * kl.sind_d[i];
         }
 
         //theta = std::atan2(sqrt(inp.x*inp.x+inp.y*inp.y),inp.z);
@@ -189,6 +173,51 @@ __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* th
     }
 }
 
+
+template <typename Scalar>
+__global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
+    //idx is nring
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    double PI = 3.141592653589793238;
+    if (idx <= nring) {
+        const int ringstart = ringstarts[idx];
+        const int npixring = nphis[idx];
+        double sint = sin(thetas[idx]); 
+        double cost = cos(thetas[idx]);
+
+        for (int i = ringstart; i < ringstart+npixring; i++) {
+            kl.phi[i] = phi0[idx] + (i-ringstart) * (2. * PI / npixring);
+            kl.d[i] = spin1_theta[i] * spin1_theta[i] + spin1_phi[i] * spin1_phi[i];
+        }
+        if (dev_isbigger(kl.d, ringstart, ringstart+npixring, 0.001)){
+            for (int i = ringstart; i < ringstart+npixring; i++) {
+                double a = sqrt(kl.d[i]);
+                kl.sind_d[i] = sin(a) / a;
+                kl.cos_a[i] = cos(a);
+                //kl.twohav_aod[i] = (kl.cos_a[i] - 1.) / kl.d[i]; # only needed for rotation, and this kernel is spin0 here
+            }
+        } else {
+            sindod_m1(kl.d, ringstart, ringstart+npixring, kl.sind_d);
+            for (int i = ringstart; i < ringstart+npixring; i++) {
+                // kl.twohav_aod[i] = -0.5 + kl.d[i]/24. * (1. - kl.d[i]/30. * (1. - kl.d[i]/56.));
+                kl.cos_a[i] = 1. + kl.d[i] * ( -0.5 + kl.d[i]/24. * (1. - kl.d[i]/30. * (1. - kl.d[i]/56.)));
+            }
+        }
+
+        for (int i = ringstart; i < ringstart+npixring; i++) {
+            kl.np1[i] = sint * kl.cos_a[i] + cost * spin1_theta[i] * kl.sind_d[i];
+            kl.np2[i] = 0. - spin1_phi[i] * kl.sind_d[i];
+            kl.np3[i] = cost * kl.cos_a[i] - sint * spin1_theta[i] * kl.sind_d[i];
+        }
+
+        for (int i = ringstart; i < ringstart+npixring; i++) {
+            pt[i] = atan2(sqrt(kl.np1[i]*kl.np1[i] + kl.np2[i]*kl.np2[i]), kl.np3[i]);
+            pp[i] = kl.phi[i] - atan2(kl.np2[i], kl.np1[i]);
+            pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
+        }
+    }
+}
+
 template <typename Scalar>
 __global__ void compute_pointing_cparr(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* synthmap, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
     //idx is nring
@@ -198,8 +227,8 @@ __global__ void compute_pointing_cparr(Scalar* pt, Scalar* pp, const Scalar* the
         const int ringstart = ringstarts[idx];
         const int npixring = nphis[idx];
         // kl.e_r(sin(theta(iring)), 0, cos(theta(iring)));
-        kl.sint = sin(thetas[idx]); 
-        kl.cost = cos(thetas[idx]);
+        double sint = sin(thetas[idx]); 
+        double cost = cos(thetas[idx]);
         for (int i = ringstart; i < ringstart+npixring; i++) {
             kl.phi[i] = phi0[idx] + i * (2. * PI / npixring);
         }
@@ -223,16 +252,16 @@ __global__ void compute_pointing_cparr(Scalar* pt, Scalar* pp, const Scalar* the
             }
         }
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.e_a1[i] = kl.cost * synthmap[i];
+            kl.e_a1[i] = cost * synthmap[i];
             kl.e_a2[i] = kl.phi[i];
-            kl.e_a3[i] = -kl.sint * synthmap[i];
+            kl.e_a3[i] = -sint * synthmap[i];
         }
 
         // kl.n_prime(kl.e_r * kl.cos_a + kl.e_a * kl.sin_d);
         for (int i = ringstart; i < ringstart+npixring; i++) {
-            kl.np1[i] = kl.sint * kl.cos_a[i] + kl.e_a1[i] * kl.sind_d[i];
+            kl.np1[i] = sint * kl.cos_a[i] + kl.e_a1[i] * kl.sind_d[i];
             kl.np2[i] = 0. - kl.e_a2[i] * kl.sind_d[i];
-            kl.np3[i] = kl.cost * kl.cos_a[i] + kl.e_a3[i] * kl.sind_d[i];
+            kl.np3[i] = cost * kl.cos_a[i] + kl.e_a3[i] * kl.sind_d[i];
         }
 
         //theta = std::atan2(sqrt(inp.x*inp.x+inp.y*inp.y),inp.z);
@@ -253,6 +282,88 @@ __global__ void compute_pointing_cparr(Scalar* pt, Scalar* pp, const Scalar* the
     }
 }
 
+
+template <typename Scalar>
+void CUpointing_1Dto1D_stepbystep(
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> thetas,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> phi0,
+    nb::ndarray<const size_t, nb::ndim<1>, nb::device::cuda> nphis,
+    nb::ndarray<const size_t, nb::ndim<1>, nb::device::cuda> ringstarts,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> spin1_theta,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> spin1_phi,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pt,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pp) {
+
+    const size_t size = thetas.size();
+    const size_t npix = spin1_theta.size();
+    const size_t nring = ringstarts.size();
+    size_t block_size = 256;
+    size_t num_blocks = (size + block_size - 1) / block_size;
+
+    KernelLocals kl;
+    double *dev_phi;
+    double *dev_sind_d, *dev_a, *dev_d;
+    double *dev_cos_a, *dev_twohav_aod;
+    double *dev_e_a1, *dev_e_a2, *dev_e_a3;
+    double *dev_np1, *dev_np2, *dev_np3;
+    double *dev_npt, *dev_npp;
+    double *dev_philocs;
+
+    cudaMalloc((void**)&dev_phi, npix * sizeof(double));
+    cudaMalloc((void**)&dev_sind_d, npix * sizeof(double));
+    cudaMalloc((void**)&dev_a, npix * sizeof(double));
+    cudaMalloc((void**)&dev_d, npix * sizeof(double));
+    cudaMalloc((void**)&dev_cos_a, npix * sizeof(double));
+    cudaMalloc((void**)&dev_twohav_aod, npix * sizeof(double));
+    cudaMalloc((void**)&dev_e_a1, npix * sizeof(double));
+    cudaMalloc((void**)&dev_e_a2, npix * sizeof(double));
+    cudaMalloc((void**)&dev_e_a3, npix * sizeof(double));
+    cudaMalloc((void**)&dev_np1, npix * sizeof(double));
+    cudaMalloc((void**)&dev_np2, npix * sizeof(double));
+    cudaMalloc((void**)&dev_np3, npix * sizeof(double));
+    cudaMalloc((void**)&dev_npt, npix * sizeof(double));
+    cudaMalloc((void**)&dev_npp, npix * sizeof(double));
+    cudaMalloc((void**)&dev_philocs, npix * sizeof(double));
+
+    kl.phi = dev_phi;
+    kl.sind_d = dev_sind_d;
+    kl.a = dev_a;
+    kl.d = dev_d;
+    kl.cos_a = dev_cos_a;
+    kl.twohav_aod = dev_twohav_aod;
+    kl.e_a1 = dev_e_a1;
+    kl.e_a2 = dev_e_a2;
+    kl.e_a3 = dev_e_a3;
+    kl.np1 = dev_np1;
+    kl.np2 = dev_np2;
+    kl.np3 = dev_np3;
+    kl.npt = dev_npt;
+    kl.npp = dev_npp;
+    kl.philocs = dev_philocs;
+
+    // compute_dummy<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), phi0.data(), nphis.data(), ringstarts.data(), synthmap.data(), nring, npix, kl, size);
+    compute_pointing_1Dto1D_stepbystep<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), phi0.data(), nphis.data(), ringstarts.data(), spin1_theta.data(), spin1_phi.data(), nring, npix, kl, size);
+    cudaDeviceSynchronize();
+
+    cudaFree(dev_phi);
+    cudaFree(dev_sind_d);
+    cudaFree(dev_a);
+    cudaFree(dev_d);
+    cudaFree(dev_cos_a);
+    cudaFree(dev_twohav_aod);
+    cudaFree(dev_e_a1);
+    cudaFree(dev_e_a2);
+    cudaFree(dev_e_a3);
+    cudaFree(dev_np1);
+    cudaFree(dev_np2);
+    cudaFree(dev_np3);
+    cudaFree(dev_npt);
+    cudaFree(dev_npp);
+    cudaFree(dev_philocs);
+    // cudaDeviceSynchronize();
+}
+
+
 template <typename Scalar>
 void CUpointing_1Dto1D(
     nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> thetas,
@@ -271,53 +382,42 @@ void CUpointing_1Dto1D(
     size_t num_blocks = (size + block_size - 1) / block_size;
 
     KernelLocals kl;
-    double *dev_sint;
-    double *dev_cost;
     double *dev_phi;
     double *dev_sind_d, *dev_a, *dev_d;
-    double *dev_cos_a, *dev_twohav_aod;
-    double *dev_e_a1, *dev_e_a2, *dev_e_a3;
+    double *dev_cos_a;
     double *dev_np1, *dev_np2, *dev_np3;
-    double *dev_npt, *dev_npp;
-    double* dev_philocs;
 
     cudaMalloc((void**)&dev_phi, npix * sizeof(double));
     cudaMalloc((void**)&dev_sind_d, npix * sizeof(double));
     cudaMalloc((void**)&dev_a, npix * sizeof(double));
     cudaMalloc((void**)&dev_d, npix * sizeof(double));
     cudaMalloc((void**)&dev_cos_a, npix * sizeof(double));
-    cudaMalloc((void**)&dev_twohav_aod, npix * sizeof(double));
-    cudaMalloc((void**)&dev_e_a1, npix * sizeof(double));
-    cudaMalloc((void**)&dev_e_a2, npix * sizeof(double));
-    cudaMalloc((void**)&dev_e_a3, npix * sizeof(double));
     cudaMalloc((void**)&dev_np1, npix * sizeof(double));
     cudaMalloc((void**)&dev_np2, npix * sizeof(double));
     cudaMalloc((void**)&dev_np3, npix * sizeof(double));
-    cudaMalloc((void**)&dev_npt, npix * sizeof(double));
-    cudaMalloc((void**)&dev_npp, npix * sizeof(double));
-    cudaMalloc((void**)&dev_philocs, npix * sizeof(double));
-
 
     kl.phi = dev_phi;
     kl.sind_d = dev_sind_d;
     kl.a = dev_a;
     kl.d = dev_d;
     kl.cos_a = dev_cos_a;
-    kl.twohav_aod = dev_twohav_aod;
-    kl.e_a1 = dev_e_a1;
-    kl.e_a2 = dev_e_a2;
-    kl.e_a3 = dev_e_a3;
     kl.np1 = dev_np1;
     kl.np2 = dev_np2;
     kl.np3 = dev_np3;
-    kl.npt = dev_npt;
-    kl.npp = dev_npp;
-    kl.philocs = dev_philocs;
-    cudaDeviceSynchronize();
-    // compute_dummy<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), phi0.data(), nphis.data(), ringstarts.data(), synthmap.data(), nring, npix, kl, size);
+
     compute_pointing_1Dto1D<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), phi0.data(), nphis.data(), ringstarts.data(), spin1_theta.data(), spin1_phi.data(), nring, npix, kl, size);
     cudaDeviceSynchronize();
+
+    cudaFree(dev_phi);
+    cudaFree(dev_sind_d);
+    cudaFree(dev_a);
+    cudaFree(dev_d);
+    cudaFree(dev_cos_a);
+    cudaFree(dev_np1);
+    cudaFree(dev_np2);
+    cudaFree(dev_np3);
 }
+
 
 template <typename Scalar>
 void CUpointing_cparr(
@@ -390,22 +490,8 @@ void CUpointing_cparr(
     printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 }
 
+
 NB_MODULE(popy, m) {
-    // m.def(
-    //     "Cpointing_ptrs",
-    //     [](
-    //         intptr_t thetas_,
-    //         intptr_t phi0_,
-    //         intptr_t nphis_,
-    //         intptr_t ringstarts_,
-    //         intptr_t synthmap_,
-    //         int nring,
-    //         int npix,
-    //         nb::ndarray<double>&host_result
-    //         ) {
-    //         return Cpointing_ptrs(thetas_, phi0_, nphis_, ringstarts_, synthmap_, nring, npix, host_result.data());
-    //     }
-    // );
     m.def("CUpointing_1Dto1D",
         &CUpointing_1Dto1D<double>,
         "thetas"_a.noconvert(),
@@ -414,16 +500,6 @@ NB_MODULE(popy, m) {
         "ringstarts"_a.noconvert(),
         "spin1_theta"_a.noconvert(),
         "spin1_phi"_a.noconvert(),
-        "outarr_pt"_a.noconvert(),
-        "outarr_pp"_a.noconvert()
-    );
-    m.def("CUpointing_cparr",
-        &CUpointing_cparr<double>,
-        "thetas"_a.noconvert(),
-        "phi0"_a.noconvert(),
-        "nphis"_a.noconvert(),
-        "ringstarts"_a.noconvert(),
-        "synthmap"_a.noconvert(),
         "outarr_pt"_a.noconvert(),
         "outarr_pp"_a.noconvert()
     );

@@ -19,28 +19,37 @@ from delensalot.sims.sims_lib import Xunl, Xsky
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-lmax, mmax, phi_lmax = 1023, 1023, 1023+256
-# lmax, mmax = 2047, 2047
-# lmax, mmax = 4095, 4095
+lmax, mmax, phi_lmax = 1023, 1023, 1023
+
 ll = np.arange(0,lmax)
 
+# Tunl_random = np.array([np.random.randn(hp.Alm.getsize(lmax)) + 1j*np.random.randn(hp.Alm.getsize(lmax))], dtype=np.complex128)[0]*1e-6
+# dlm_random = np.array([np.random.randn(hp.Alm.getsize(phi_lmax)) + 1j*np.random.randn(hp.Alm.getsize(phi_lmax))], dtype=np.complex128)[0]*1e-6
+# print(dlm_random.shape, Tunl_random.shape)
+# Tunl = Tunl_random
+# dlm = dlm_random
 
-Tunl_random = np.array([np.random.randn(hp.Alm.getsize(lmax)) + 1j*np.random.randn(hp.Alm.getsize(lmax))], dtype=np.complex128)[0]*1e-6
-dlm_random = np.array([np.random.randn(hp.Alm.getsize(phi_lmax)) + 1j*np.random.randn(hp.Alm.getsize(phi_lmax))], dtype=np.complex128)[0]*1e-6
-print(dlm_random.shape, Tunl_random.shape)
 
-Tunl = Tunl_random
-dlm = dlm_random
-# geominfo = ('tgl',{'lmax': lmax, 'smax':3})
-# geominfo = ('gl',{'lmax':lmax})
 solver = 'shtns'
 geominfo = ('gl',{'lmax':lmax})
 lenjob_geominfo = ('gl',{'lmax':phi_lmax}) #('thingauss', {'lmax':phi_lmax, 'smax':3})
 
+synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
+synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=geominfo, lenjob_geominfo=lenjob_geominfo, epsilon=1e-10)
 
-import time
+philm = synunl.get_sim_phi(0, space='alm')
 
-# time.sleep(5)
+Tunl = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
+Tunlmap = synunl.get_sim_unl(0, spin=0, space='map', field='temperature')
+Tsky = synsky.get_sim_sky(0, spin=0, space='map', field='temperature')
+Tskyalm = synsky.get_sim_sky(0, spin=0, space='alm', field='temperature')
+
+Tsky2 = synsky.unl2len(Tunl, philm, spin=0, epsilon=1e-10)
+
+lldlm = np.arange(0, phi_lmax+1)
+dlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
+
+
 """
 gclm2lenmap
 """

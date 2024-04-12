@@ -12,11 +12,7 @@ class GPU_SHTns_transformer():
     def __init__(self, geominfo):
         self.set_geometry(geominfo)
 
-
     def set_geometry(self, geominfo):
-        # TODO set_geometry is more a constructor + set_grid in shtns
-        # self.geom = geometry.get_geom(geom_desc)
-        
         if geominfo[0] == 'cc':
             print('initializing shtns for CC in GPU_SHTns_transformer')
             print("geominfo for CC in GPU_SHTns_transformer: ", geominfo)
@@ -28,11 +24,11 @@ class GPU_SHTns_transformer():
             geominfo[1].pop('lmax')
             geominfo[1].pop('mmax')   
         else:
-            print('initializing shtns')
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)#, nlat=geominfo[1]['ntheta'], nphi=geominfo[1]['nphi'])
-            print('initializing shtns done')
         self.geom = geometry.get_geom(geominfo)
+        print(geominfo)
+        print(self.constructor.spat_shape)
         self.theta_contiguous = True
         
     def set_constructor(self, lmax, mmax):
