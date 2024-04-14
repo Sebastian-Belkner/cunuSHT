@@ -12,8 +12,11 @@ import pysht.geometry as geometry
 from pysht.helper import shape_decorator
 
 class CPU_SHT_DUCC_transformer():
-    def __init__(self, geom=None):
-        self.geom = geometry.get_geom(geom)
+    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+        self.set_geometry(geominfo)
+        self.verbosity = verbosity
+        self.single_prec = single_prec
+        self.nthreads = nthreads
         self.theta_contiguous = False
 
 
@@ -70,11 +73,15 @@ class CPU_SHT_DUCC_transformer():
         return self.adjoint_synthesis(m.copy(), 0, lmax, mmax, nthreads, **kwargs).squeeze()
 
 class CPU_SHT_SHTns_transformer():
-    def __init__(self, geominfo):
+    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
         self.set_geometry(geominfo)
+        self.verbosity = verbosity
+        self.single_prec = single_prec
+        self.nthreads = nthreads
 
 
     def set_geometry(self, geominfo):
+        self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
@@ -83,7 +90,6 @@ class CPU_SHT_SHTns_transformer():
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
-        self.geom = geometry.get_geom(geominfo)
         self.theta_contiguous = True
            
         
@@ -110,6 +116,7 @@ class CPU_SHT_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
+        print(gclm.size, self.constructor.nlm)
         buff = self.constructor.synth_grad(gclm)
         ret = np.array([a.flatten() for a in buff])
         return ret

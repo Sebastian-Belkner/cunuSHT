@@ -42,7 +42,7 @@ def shape_decorator(func):
 def debug_decorator(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        if not args[0].debug:
+        if not args[0].execmode == 'debug':
             return func(*args, **kwargs)
         res = func(*args, **kwargs)
         buff = []

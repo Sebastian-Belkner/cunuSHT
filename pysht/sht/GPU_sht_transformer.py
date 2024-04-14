@@ -8,9 +8,11 @@ from pysht.helper import shape_decorator
 
 
 class GPU_SHTns_transformer():
-    
-    def __init__(self, geominfo):
+    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
         self.set_geometry(geominfo)
+        self.verbosity = verbosity
+        self.single_prec = single_prec
+        self.nthreads = nthreads
 
     def set_geometry(self, geominfo):
         if geominfo[0] == 'cc':
@@ -27,8 +29,6 @@ class GPU_SHTns_transformer():
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)#, nlat=geominfo[1]['ntheta'], nphi=geominfo[1]['nphi'])
         self.geom = geometry.get_geom(geominfo)
-        print(geominfo)
-        print(self.constructor.spat_shape)
         self.theta_contiguous = True
         
     def set_constructor(self, lmax, mmax):
@@ -112,9 +112,11 @@ class GPU_SHT_pySHT_transformer():
     GPU_SHT_pySHT_transformer class for performing spherical harmonic transformations using pySHT library.
     This will be the self-implemented spin-n SHT transforms. 
     """
-    def __init__(self, geominfo):
-        self.geom = geometry.get_geom(geominfo)
-
+    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+        self.set_geometry(geominfo)
+        self.verbosity = verbosity
+        self.single_prec = single_prec
+        self.nthreads = nthreads
 
     def set_geometry(self, geominfo):
         pass
