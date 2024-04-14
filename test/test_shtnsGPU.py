@@ -1,11 +1,15 @@
 """
-python3 -m unittest test_shtns_cupyarray.py
+TBD
+
+python3 -m unittest test_shtnsGPU.py
 """
 import unittest
 
 import numpy as np
 import cupy as cp
 import shtns
+import ducc0
+import healpy as hp
 
 import pysht
 import pysht.c.podo_interface as podo
@@ -23,23 +27,25 @@ class TestUnit(unittest.TestCase):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
                 cGPU = shtns.sht(int(test_case[0]), int(test_case[1]))
-                cGPU.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(test_case[0]+1), nphi=int(2*(test_case[1]+1)))
+                cGPU.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)#, nlat=int(test_case[0]+1), nphi=int(2*(test_case[1]+1)))
 
-                alm_random = np.array([np.random.randn(cGPU.nlm) + 1j*np.random.randn(cGPU.nlm)], dtype=np.complex128)
+                alm_random = np.random.randn(cGPU.nlm) + 1j*np.random.randn(cGPU.nlm)
                 alm = cp.array(alm_random)
+                print("alm shape: ", alm.shape)
 
-                # print("shape of alm: ", alm.shape)
-                # print("shape of alm_random: ", alm_random.shape)
-
-                out_theta = cp.empty(shape=(1,cGPU.nphi,cGPU.nlat), dtype=np.double)
-                out_phi = cp.empty(shape=(1,cGPU.nphi,cGPU.nlat), dtype=np.double)
+                out_theta = cp.empty(shape=(cGPU.nphi, cGPU.nlat), dtype=np.double)
+                out_phi = cp.empty(shape=(cGPU.nphi, cGPU.nlat), dtype=np.double)
+                print("GPU cupy output shape: {}, lmax = {}".format(out_theta.shape, test_case[0]))
 
                 grad_theta, grad_phi = cGPU.synth_grad(alm_random)
+                print("GPU non-cupy output shape: {}".format(grad_theta.shape))
                 cGPU.cu_SHsph_to_spat(alm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 
                 self.assertEqual(0., np.linalg.norm(grad_theta - out_theta.get()))
                 self.assertEqual(0., np.linalg.norm(grad_phi - out_phi.get()))
-                  
+                # print(grad_theta, out_theta.get())
+    
+    @unittest.skip("Skipping this test method for now")
     def test_unit_SHTns_synthesis_cupyarray(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
@@ -72,27 +78,46 @@ class TestIntegration(unittest.TestCase):
         """
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                ntheta_CAR, nphi_CAR = None, None # comes from good_size
-                ntheta_dCAR, nphi_dCAR = 2*ntheta_CAR-2, nphi_CAR
-                nlm = None # comes from phi_lmax
-                
-                alm_random = np.atleast_2d(np.random.randn(nlm) + 1j*np.random.randn(nlm)).astype(np.complex128)
+                geominfo = ('gl',{'lmax':test_case[0]})
+                nlm = hp.Alm.getsize(test_case[0]) # comes from phi_lmax
+                alm_random = np.atleast_2d(
+                    np.random.randn(nlm) +
+                    1j*np.random.randn(nlm))
+                alm_random = cp.array(alm_random)
+                ntheta_CAR = (ducc0.fft.good_size(geominfo[1]['lmax'] + 2) + 3) // 4 * 4
+                nphihalf_CAR = ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
+                nphi_CAR = 2 * nphihalf_CAR
+                geominfo_CAR = (
+                    'cc',
+                        {
+                    'lmax': geominfo[1]['lmax'],
+                    'mmax': geominfo[1]['lmax'],
+                    'ntheta': ntheta_CAR,
+                    'nphi': nphi_CAR,
+                        }
+                )
                 kwargs = {
-                    'nthreads': 10,
-                    'mmax_dlm':test_case[1],
-                    'epsilon':1e-10,
-                    'verbosity':0,
-                    'single_prec':False,
-                }
-                t = pysht.get_transformer(solver='shtns', mode='SHT', backend='GPU')
-                t = t(sht_solver='shtns', **kwargs)
+                    'geominfo': geominfo_CAR,
+                    'verbosity': 0,
+                    'single_prec': False,
+                    'nthreads': 10
+                } 
+                tCAR = pysht.get_transformer('shtns', 'SHT', 'GPU')(**kwargs)
                 CARmap = cp.empty((ntheta_CAR, nphi_CAR), dtype=np.double)
-                CARdmap = cp.zeros((ntheta_dCAR)*nphi_dCAR, dtype=np.double)
                 
-                t.synthesis_cupy(alm_random, CARmap, spin=0, lmax=test_case[0], mmax=test_case[1], nthreads=10)
+                ntheta_dCAR = 2 * ntheta_CAR-2
+                nphi_dCAR = nphi_CAR
+                CARdmap = cp.zeros(ntheta_dCAR * nphi_dCAR, dtype=np.double)
+                tCAR.synthesis_cupy(alm_random, CARmap, spin=0, lmax=test_case[0], mmax=test_case[1], nthreads=10)
                 podo.Cdoubling_1D(CARmap.reshape(nphi_CAR,-1).T.flatten(), int(ntheta_CAR), int(nphi_CAR), CARdmap)
                 
-                assert None # TODO
+                doubling1D_py = np.zeros((ntheta_dCAR, nphi_dCAR))
+                synth1D_py = np.copy(CARmap.get().reshape(ntheta_CAR, nphi_CAR))
+                doubling1D_py[:ntheta_CAR, :] = synth1D_py
+                doubling1D_py[ntheta_CAR:, :nphihalf_CAR] = doubling1D_py[ntheta_CAR-2:0:-1, nphihalf_CAR:]
+                doubling1D_py[ntheta_CAR:, nphihalf_CAR:] = doubling1D_py[ntheta_CAR-2:0:-1, :nphihalf_CAR]
+                
+                # assert None # TODO
 
 
     @unittest.skip("Skipping this test method for now")

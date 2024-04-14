@@ -1,3 +1,9 @@
+"""
+TBD
+
+python3 -m unittest test_doublingGPU.py
+"""
+
 import unittest
 
 import cupy as cp
@@ -97,6 +103,7 @@ class TestIntegration(unittest.TestCase):
                 doubling1D_py[ntheta_CAR:, :nphihalf_CAR] = doubling1D_py[ntheta_CAR-2:0:-1, nphihalf_CAR:]
                 doubling1D_py[ntheta_CAR:, nphihalf_CAR:] = doubling1D_py[ntheta_CAR-2:0:-1, :nphihalf_CAR]
                 np.testing.assert_almost_equal(CARdmap.get(), doubling1D_py.flatten())
+
 
     @unittest.skip("Skipping this test method for now")
     def test_integration_doubling2C2C(self):

@@ -1,5 +1,7 @@
 """
-python3 -m unittest test_shtns_cupyarray.py
+TBD
+
+python3 -m unittest test_scipyFFT.py
 """
 import unittest
 

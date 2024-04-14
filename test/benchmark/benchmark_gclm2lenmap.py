@@ -15,23 +15,15 @@ if backends == ['GPU']:
     solvers = ['cufinufft']
 else:
     solvers = ['lenspyx']
-
 sht_solver = 'shtns'
-# lmaxs = np.array([n*256-1 for n in np.arange(1,15)])
-# lmaxs = np.array([2**n-1 for n in np.arange(int(sys.argv[2]),int(sys.argv[2])+1)])
-# lmaxs = [24*220-1]
-# lmaxs = np.array([32*n-1 for n in np.arange(1,150,10)])
 lmaxs = [int(sys.argv[2])]
-print(20*"-,...,-")
-print("lmax: {}".format(lmaxs[0]))
-print(20*"-,...,-")
 
 for lmax in lmaxs:
     phi_lmax = lmax
     geominfo = ('gl',{'lmax':lmax})
     lenjob_geominfo = ('gl',{'lmax':phi_lmax})
     lldlm = np.arange(0,phi_lmax+1)
-    synunl = Xunl(lmax=lmax, geominfo=geominfo)
+    synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
     synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=geominfo, lenjob_geominfo=geominfo)
     philm = synunl.get_sim_phi(0, space='alm')
     toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
@@ -71,7 +63,6 @@ for lmax in lmaxs:
             print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
             t = pysht.get_transformer(solver, mode, backend)
             t = t(sht_solver, **kwargs, deflection_kwargs=deflection_kwargs)
-            print("\n----Testing function gclm2lenmap...----")
             print("\n----lmax: {}, epsilon: {}----".format(lmax, deflection_kwargs['epsilon']))
             if backend == 'CPU':
                 if solver == 'lenspyx':
