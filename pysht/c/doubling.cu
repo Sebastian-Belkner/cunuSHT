@@ -37,7 +37,7 @@ __global__ void compute_doubling_spin0_2D(Scalar* synth2D, const size_t nring, c
 }
 
 template <typename Scalar>
-void CUdoubling_cparr2D(
+void CUdoubling_2D(
     nb::ndarray<const Scalar, nb::ndim<2>, nb::device::cuda> synth2D,
     const size_t nring,
     const size_t nphi,
@@ -50,45 +50,42 @@ void CUdoubling_cparr2D(
 }
 
 
-// template <typename Scalar>
-// __global__ void compute_doubling_spin0_2Dto1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
-//     // map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=np.complex128 if spin == 0 else ctype[map.dtype])
-//     //idx is ntheta
-//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+template <typename Scalar>
+__global__ void compute_undoubling_spin0_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
+    //idx is ntheta of doubled map (idx = 2*ntheta-2)
+    if (spin % 2) != 0:
+        map_dfs[1:ntheta - 1, :nphihalf] -= map_dfs[-1:ntheta - 1:-1, nphihalf:]
+        map_dfs[1:ntheta - 1, nphihalf:] -= map_dfs[-1:ntheta - 1:-1, :nphihalf]
+    else:
+        map_dfs[1:ntheta - 1, :nphihalf] += map_dfs[-1:ntheta - 1:-1, nphihalf:]
+        map_dfs[1:ntheta - 1, nphihalf:] += map_dfs[-1:ntheta - 1:-1, :nphihalf]
+    map_dfs = map_dfs[:ntheta, :]
+    map = np.empty((1 if spin == 0 else 2, ntheta, nphi), dtype=rtype[lenmap.dtype])
+    map[0] = map_dfs.real
+    if spin > 0:
+        map[1] = map_dfs.imag
+    del map_dfs
+    return map
 
-//     const size_t nphihalf = nphi / 2;
-//     if (idx <= ntheta) {
-//         // map_dfs[:ntheta, :] = map[0]
-//         for (int i = 0; i < ntheta; i++) {
-//             for (int j = 0; j < nphi; j++) {
-//                 doubling1D[i * nphi + j] = synth1D[i * nphi + j];
-//             }
-//         }
-//         for (int i = ntheta; i < 2 * ntheta - 2; i++) {
-//             for (int j = 0; j < nphihalf; j++) {
-//                 doubling1D[i * nphi + j] = synth1D[(2 * ntheta - 3 - i) * nphi + (nphi - nphihalf) + j];
-//             }
-//         }
-//         for (int i = ntheta; i < 2 * ntheta - 2; i++) {
-//             for (int j = nphihalf; j < nphi; j++) {
-//                 doubling1D[i * nphi + j] = synth1D[(2 * ntheta - 3 - i) * nphi + (j - nphihalf)];
-//             }
-//         }
-//     }
-// }
+template <typename Scalar>
+void CUundoubling_1D(
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
+    const size_t nring,
+    const size_t nphi,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_doubling1D) {
 
-// template <typename Scalar>
-// void CUdoubling_2Dto1D(
-//     nb::ndarray<Scalar, nb::ndim<2>, nb::device::cuda> synth1D,
-//     const size_t nring,
-//     const size_t nphi,
-//     nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_doubling1D) {
+    const int threadsPerBlock = 256;
+    int blocksPerGrid = (nring + threadsPerBlock - 1) / threadsPerBlock;
+    compute_undoubling_spin0_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_doubling1D.data());
+    cudaDeviceSynchronize();
+    cudaError_t errSync  = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+    if (errSync != cudaSuccess) 
+    printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+    if (errAsync != cudaSuccess)
+    printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+}
 
-//     const int threadsPerBlock = 256;
-//     int blocksPerGrid = (nring + threadsPerBlock - 1) / threadsPerBlock;
-//     compute_doubling_spin0_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_doubling1D.data());
-//     cudaDeviceSynchronize();
-// }
 
 template <typename Scalar>
 __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
@@ -114,9 +111,8 @@ __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t nt
     }
 }
 
-
 template <typename Scalar>
-void CUdoubling_cparr1D(
+void CUdoubling_1D(
     nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
     const size_t nring,
     const size_t nphi,
@@ -135,8 +131,8 @@ void CUdoubling_cparr1D(
 }
 
 NB_MODULE(dopy, m) {
-    // m.def("CUdoubling_cparr2D",
-    //     &CUdoubling_cparr2D<double>,
+    // m.def("CUdoubling_2D",
+    //     &CUdoubling_2D<double>,
     //     "synth2D"_a.noconvert(),
     //     "nring"_a.noconvert(),
     //     "nphi"_a.noconvert(),
@@ -149,11 +145,18 @@ NB_MODULE(dopy, m) {
     //     "nphi"_a.noconvert(),
     //     "outarr_doubling1D"_a.noconvert()
     // );
-    m.def("CUdoubling_cparr1D",
-        &CUdoubling_cparr1D<double>,
+    m.def("CUdoubling_1D",
+        &CUdoubling_1D<double>,
         "synth1D"_a.noconvert(),
         "nring"_a.noconvert(),
         "nphi"_a.noconvert(),
         "outarr_doubling1D"_a.noconvert()
+    );
+    m.def("CUundoubling_1D",
+        &CUundoubling_1D<double>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_undoubling1D"_a.noconvert()
     );
 }

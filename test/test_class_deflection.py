@@ -37,7 +37,6 @@ class TestUnit(unittest.TestCase):
                 
                 lldlm = np.arange(0,phi_lmax+1)
                 synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
-                synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=geominfo, lenjob_geominfo=geominfo)
                 philm = synunl.get_sim_phi(0, space='alm')
                 toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
                 # toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')

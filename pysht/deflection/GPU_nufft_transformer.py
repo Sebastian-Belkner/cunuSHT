@@ -28,6 +28,13 @@ from pysht.helper import shape_decorator, debug_decorator, timing_decorator
 from pysht.sht.GPU_sht_transformer import GPU_SHT_pySHT_transformer, GPU_SHTns_transformer
 from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 
+ctype = {np.dtype(np.float32): np.complex64,
+         np.dtype(np.float64): np.complex128,
+         np.dtype(np.longfloat): np.longcomplex,
+         np.float32: np.complex64,
+         np.float64: np.complex128,
+         np.longfloat: np.longcomplex}
+
 class deflection:
     def __init__(self, shttransformer_desc, dlm, mmax_dlm:int, geominfo, dclm:np.ndarray=None, epsilon=1e-10, verbosity=0, nthreads=10, single_prec=False, timer=None):
         if timer is not None:
@@ -160,12 +167,13 @@ class GPU_cufinufft_transformer:
         self.nphi_CAR = 2 * self.nphihalf_CAR
         self.geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
         self.cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(self.geominfo_CAR)
-    
+
+  
     def __getattr__(self, name):
         return getattr(self.instance, name)
         
 
-    def gclm2lenmap_cupy(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, execmode='calc'):
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, execmode='calc'):
         """
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
         so no transfers needed to CPU between them.
@@ -177,7 +185,7 @@ class GPU_cufinufft_transformer:
             
         @timing_decorator
         def _setup(self, gclm, execmode, nthreads):
-            assert execmode in ['normal','debug', 'timing']
+            assert execmode in ['normal', 'debug', 'timing']
             print('Running in {} execution mode')
             nthreads = self.nthreads if nthreads is None else nthreads
             gclm = np.atleast_2d(gclm)
@@ -200,7 +208,6 @@ class GPU_cufinufft_transformer:
         @shape_decorator
         def _doubling(self, map_in, ntheta, nphi, out):
             podo.Cdoubling_1D(map_in, ntheta, nphi, out)
-            cp.cuda.runtime.deviceSynchronize()
             return tuple([out])
         
         @debug_decorator
@@ -208,7 +215,6 @@ class GPU_cufinufft_transformer:
         @shape_decorator
         def _C2C(self, map_in, out):
             out = scipy.fft.fft2(map_in, norm='forward')
-            cp.cuda.runtime.deviceSynchronize()
             return tuple([out])
         
         @debug_decorator
@@ -216,7 +222,6 @@ class GPU_cufinufft_transformer:
         @shape_decorator
         def _nuFFT(self, fc, ptg_theta, ptg_phi, result):
             result = cufinufft.nufft2d2(data=fc, x=ptg_theta, y=ptg_phi, isign=1, eps=self.epsilon)
-            cp.cuda.runtime.deviceSynchronize()
             return tuple([result])
 
         self.timer = timer(1, prefix=self.backend)
@@ -257,7 +262,7 @@ class GPU_cufinufft_transformer:
         self.timer.add('Transfer <-')
         
         if self.execmode == 'timing':
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/GPU_cufinufft_{}'.format(lmax))
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))
             print(self.timer)
             print("::timing:: stored new timing data for lmax {}".format(lmax))
         if self.execmode == 'debug':
@@ -266,52 +271,69 @@ class GPU_cufinufft_transformer:
         del fc, lenmap, pointing_theta, pointing_phi
         return result
 
-    def lenmap2gclm(self, points:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD'):
+
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD', ptg=None):
         """
             Note:
-                points mst be already quadrature-weigthed
+                lenmap mst be already quadrature-weigthed
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
         """
-        if spin == 0 and not np.iscomplexobj(points):
-            points = points.astype(ctype[points.dtype]).squeeze()
-        if spin > 0 and not np.iscomplexobj(points):
-            points = (points[0] + 1j * points[1]).squeeze()
+        
+        def setup(self, lenmap, nthreads):
+            assert lenmap.ndim == 2, lenmap.ndim
+            assert not np.iscomplexobj(lenmap), (spin, lenmap.ndim, lenmap.dtype)
+            lenmap = np.atleast_2d(lenmap)
+            if self.single_prec and lenmap.dtype != np.complex64:
+                lenmap = lenmap.astype(np.complex64)
+            lenmap = cp.array(lenmap, dtype=np.complex)
+            return lenmap
+        if spin == 0 and not np.iscomplexobj(lenmap):
+            lenmap = lenmap.astype(ctype[lenmap.dtype]).squeeze()
+        if spin > 0 and not np.iscomplexobj(lenmap):
+            lenmap = (lenmap[0] + 1j * lenmap[1]).squeeze()
+            
+        def nuFFT(self):
+            map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=lenmap.dtype)
+            if self.planned:
+                plan = self.make_plan(lmax, spin)
+                map_dfs = plan.nu2u(lenmap=lenmap, out=map_dfs, forward=True, verbosity=self.verbosity)
+            else:
+                map_dfs = ducc0.nufft.nu2u(lenmap=lenmap, coord=ptg, out=map_dfs, forward=True, epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity, periodicity=2 * np.pi, fft_order=True)
+            return map_dfs
+        
+        def C2C(self):
+            # map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), forward=False, inorm=2, nthreads=nthreads, out=map_dfs)
+            map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=lenmap.dtype)
+            map_dfs = scipy.fft.ifft2(lenmap, norm='backward')
+            return map_dfs
+        
+        def undoubling(self):
+            # go from double Fourier sphere to Clenshaw-Curtis grid
+            if (spin % 2) != 0:
+                map_dfs[1:ntheta - 1, :nphihalf] -= map_dfs[-1:ntheta - 1:-1, nphihalf:]
+                map_dfs[1:ntheta - 1, nphihalf:] -= map_dfs[-1:ntheta - 1:-1, :nphihalf]
+            else:
+                map_dfs[1:ntheta - 1, :nphihalf] += map_dfs[-1:ntheta - 1:-1, nphihalf:]
+                map_dfs[1:ntheta - 1, nphihalf:] += map_dfs[-1:ntheta - 1:-1, :nphihalf]
+            map_dfs = map_dfs[:ntheta, :]
+            map = np.empty((1 if spin == 0 else 2, ntheta, nphi), dtype=rtype[lenmap.dtype])
+            map[0] = map_dfs.real
+            if spin > 0:
+                map[1] = map_dfs.imag
+            del map_dfs
+            return map
+        
+        def adjoing_synthesis(self):
+            gclm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=sht_mode, alm=gclm_out)
+            return gclm
+
+        lenmap = setup(self, lenmap, nthreads)
         ptg = self._get_ptg(dlm, mmax)
-
-
-        ntheta = ducc0.fft.good_size(lmax + 2)
-        nphihalf = ducc0.fft.good_size(lmax + 1)
-        nphi = 2 * nphihalf
-        map_dfs = np.empty((2 * ntheta - 2, nphi), dtype=points.dtype)
-        if self.planned:
-            plan = self.make_plan(lmax, spin)
-            map_dfs = plan.nu2u(points=points, out=map_dfs, forward=True, verbosity=self.verbosity)
-
-        else:
-            # perform NUFFT
-            map_dfs = ducc0.nufft.nu2u(points=points, coord=ptg, out=map_dfs, forward=True,
-                                       epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity,
-                                       periodicity=2 * np.pi, fft_order=True)
-        # go to position space
-        map_dfs = ducc0.fft.c2c(map_dfs, axes=(0, 1), forward=False, inorm=2, nthreads=nthreads, out=map_dfs)
-
-        # go from double Fourier sphere to Clenshaw-Curtis grid
-        if (spin % 2) != 0:
-            map_dfs[1:ntheta - 1, :nphihalf] -= map_dfs[-1:ntheta - 1:-1, nphihalf:]
-            map_dfs[1:ntheta - 1, nphihalf:] -= map_dfs[-1:ntheta - 1:-1, :nphihalf]
-        else:
-            map_dfs[1:ntheta - 1, :nphihalf] += map_dfs[-1:ntheta - 1:-1, nphihalf:]
-            map_dfs[1:ntheta - 1, nphihalf:] += map_dfs[-1:ntheta - 1:-1, :nphihalf]
-        map_dfs = map_dfs[:ntheta, :]
-        map = np.empty((1 if spin == 0 else 2, ntheta, nphi), dtype=rtype[points.dtype])
-        map[0] = map_dfs.real
-        if spin > 0:
-            map[1] = map_dfs.imag
-        del map_dfs
-
-        # adjoint SHT synthesis
-        slm = ducc0.sht.experimental.adjoint_synthesis_2d(map=map, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=sht_mode, alm=gclm_out)
-        return slm.squeeze()
+        map_dfs = nuFFT(self)
+        map_dfs = C2C(self)
+        gcmap = undoubling(self)
+        gclm = adjoing_synthesis(self)
+        return gclm.squeeze()
     
 
     def lensgclm(self, gclm:np.ndarray, dlm:np.array, spin:int, lmax_out:int, nthreads:int, mmax:int=None, mmax_out:int=None,gclm_out:np.ndarray=None, polrot=True, out_sht_mode='STANDARD'):
