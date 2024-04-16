@@ -375,7 +375,7 @@ class CPU_DUCCnufft_transformer:
             map_dfs = scipy.fft.ifft2(lenmap, norm='backward')
             return map_dfs
 
-        def undoubling(self):
+        def adjoint_doubling(self):
             # go from double Fourier sphere to Clenshaw-Curtis grid
             if (spin % 2) != 0:
                 map_dfs[1:ntheta - 1, :nphihalf] -= map_dfs[-1:ntheta - 1:-1, nphihalf:]
@@ -399,7 +399,7 @@ class CPU_DUCCnufft_transformer:
         ptg = self._get_ptg(dlm, mmax)
         map_dfs = nuFFT(self)
         map_dfs = C2C(self)
-        gcmap = undoubling(self)
+        gcmap = adjoint_doubling(self)
         gclm = adjoing_synthesis(self)
         return gclm.squeeze()
 

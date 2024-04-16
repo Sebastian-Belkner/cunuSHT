@@ -46,13 +46,13 @@ for epsilon in epsilons:
             }
             
             deflection_kwargs = {
-                'dlm': toydlm,
-                'mmax_dlm': phi_lmax,
-                'epsilon': epsilon,
-                'verbosity': 1,  
-                'single_prec': True,
-                'nthreads': 10,
                 'geominfo': lenjob_geominfo,
+                'nthreads': 10,
+                'epsilon': epsilon,
+                'verbosity': 1,
+                'single_prec': True,
+                'mmax_dlm': phi_lmax,
+                'dlm': toydlm,
             }
             backend = runinfo[0]
             defres.update({backend: {}}) if backend not in defres.keys() else None

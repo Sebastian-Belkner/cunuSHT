@@ -54,6 +54,15 @@ class GPU_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         return self.constructor.cu_SH_to_spat(gclm.data.ptr, out.data.ptr)
+
+
+    def adjoint_synthesis_cupy(self, synthmap, gclm, spin, lmax, mmax, mode=None, nthreads=None):
+        #TODO all other than gclm not supported. Want same interface for each backend, 
+        # could check grid for each synth and ana call and update if needed
+        """Wrapper to SHTns forward SHT
+            Return a map or a pair of map for spin non-zero, with the same type as gclm
+        """
+        return self.constructor.cu_spat_to_SH(synthmap.data.ptr, gclm.data.ptr)
     
 
     def synthesis_der1(self, gclm: np.int64, out: np.int64, nthreads=None):
