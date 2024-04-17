@@ -136,6 +136,8 @@ class GPU_cufinufft_transformer:
         self.verbosity = verbosity
         self.planned = planned
         
+        self.execmode = None
+        
         sht_kwargs = {
             'geominfo': geominfo,
             'verbosity': verbosity,
@@ -173,7 +175,7 @@ class GPU_cufinufft_transformer:
         return getattr(self.instance, name)
         
 
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, execmode='calc'):
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, execmode='normal'):
         """
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
         so no transfers needed to CPU between them.
@@ -186,7 +188,7 @@ class GPU_cufinufft_transformer:
         # @timing_decorator
         def _setup(self, gclm, execmode, nthreads):
             assert execmode in ['normal', 'debug', 'timing']
-            print('Running in {} execution mode')
+            print('Running in {} execution mode'.format(execmode))
             nthreads = self.nthreads if nthreads is None else nthreads
             gclm = np.atleast_2d(gclm)
             if self.single_prec and gclm.dtype != np.complex64:
@@ -272,15 +274,19 @@ class GPU_cufinufft_transformer:
         return result
 
 
-    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, sht_mode='STANDARD', ptg=None):
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, spin:int, lmax:int, mmax:int, nthreads:int, pointing_theta=None, pointing_phi=None, gclm_out=None, sht_mode='STANDARD', execmode='normal'):
         """
             Note:
                 lenmap mst be already quadrature-weigthed
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
         """
-        
+        self.ret = {}
         def setup(self, lenmap):
             assert lenmap.ndim == 2, lenmap.ndim
+            assert execmode in ['normal', 'debug', 'timing']
+            print('Running in {} execution mode'.format(execmode))
+            self.execmode = execmode
+            self.deflectionlib.execmode = self.execmode
             assert not np.iscomplexobj(lenmap), (spin, lenmap.ndim, lenmap.dtype)
             lenmap = np.atleast_2d(lenmap)
             if self.single_prec and lenmap.dtype != np.complex64:
@@ -298,9 +304,9 @@ class GPU_cufinufft_transformer:
         @debug_decorator
         @timing_decorator
         @shape_decorator
-        def nuFFT(self, fc, ptg_theta, ptg_phi, result):
-            result = cufinufft.nufft2d1(data=fc, x=ptg_theta, y=ptg_phi, isign=1, eps=self.epsilon)
-            return tuple([result])
+        def nuFFT(self, lenmap, ptg_theta, ptg_phi, fc):
+            fc = cufinufft.nufft2d1(data=lenmap.astype(complex), x=ptg_theta, y=ptg_phi, n_modes=(2*self.ntheta_CAR-2, self.nphi_CAR), isign=1, eps=self.epsilon)
+            return tuple([fc])
         
         @debug_decorator
         @timing_decorator
@@ -314,28 +320,34 @@ class GPU_cufinufft_transformer:
         @timing_decorator
         @shape_decorator        
         def adjoint_doubling(self, CARdmap, CARmap):
-            podo.Cadjoint_doubling_1D(CARdmap, self.ntheta_CAR, self.nphi_CAR, CARmap)
+            podo.Cadjoint_doubling_1D(CARdmap, int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
             return tuple([CARmap])
 
         @debug_decorator
         @timing_decorator
         @shape_decorator
-        def adjoing_synthesis(self, synthmap, out):
-            self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        def adjoint_synthesis(self, synthmap, out):
+            out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            return tuple([out])
    
+        nalm = ((lmax+1)*(lmax+2)//2)
+        
         if pointing_theta is None or pointing_phi is None:
             pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
             pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
-            dlm2pointing(self, dlm, pointing_theta, pointing_phi)
+            pointing_theta, pointing_phi = dlm2pointing(self, dlm, pointing_theta, pointing_phi)
             
-        fc = nuFFT(self, lenmap, ptg[1], ptg[0], fc)
-        # zero-padding
-        CARmap = None
-        CARmap = C2C(self, fc, CARmap)
-        CARdmap, CARmap = None, None
-        synthmap = adjoint_doubling(self, CARdmap, CARmap)
-        gclm = None
-        gclm = adjoing_synthesis(self, synthmap, gclm)
+        lenmap = setup(self, lenmap)
+        fc = cp.array((self.ntheta_CAR, self.nphi_CAR), dtype=np.complex)
+        fc = nuFFT(self, lenmap, pointing_phi, pointing_theta, fc)[0]
+        CARdmap = None
+        CARdmap = C2C(self, fc, CARdmap)[0]
+        _ = np.zeros(shape=(self.ntheta_CAR*self.nphi_CAR))
+        CARmap = cp.array(_, dtype=np.double)
+        synthmap = adjoint_doubling(self, CARdmap.flatten().astype(np.double), CARmap)[0]
+        _ = np.zeros(shape=nalm)
+        gclm = cp.array(_, dtype=np.complex)
+        gclm = adjoint_synthesis(self, synthmap, gclm)
         
         if self.execmode == 'timing':
             self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/lenmap2gclm/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))

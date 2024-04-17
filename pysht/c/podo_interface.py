@@ -41,5 +41,7 @@ def Cdoubling_cparr2D(synth2D, nring, nphi, out):
     dopy.CUdoubling_cparr2D(synth2D, nring, nphi, out)
     
 def Cadjoint_doubling_1D(CARdmap, nring, nphi, out):
-    # print("Types: ", type(synth1D), type(nring), type(nphi), type(out))
+    print("Types: ", type(CARdmap), type(nring), type(nphi), type(out))
+    print("dtypes: ", CARdmap.dtype, out.dtype)
+    print('shapes: ', CARdmap.shape, out.shape)
     dopy.CUadjoint_doubling_1D(CARdmap, nring, nphi, out)

@@ -80,6 +80,12 @@ class Geom:
                 ar[:] = ar[asort]
             return self
         return Geom(self.theta[asort], self.phi0[asort], self.nph[asort], self.ofs[asort], self.weight[asort])
+    
+    def nalm(self, lmax:int, mmax:int):
+        """Number of alm coefficients for a given lmax and mmax
+
+        """
+        return (lmax + 1) * (mmax + 1)
 
     def restrict(self, tht_min:float, tht_max:float, northsouth_sym:bool, update_ringstart=False):
         """Returns a geometry with restricted co-latitude range

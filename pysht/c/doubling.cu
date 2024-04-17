@@ -77,11 +77,11 @@ void CUadjoint_doubling_1D(
     nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
     const size_t nring,
     const size_t nphi,
-    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_doubling1D) {
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_adjoint_doubling1D) {
 
     const int threadsPerBlock = 256;
     int blocksPerGrid = (nring + threadsPerBlock - 1) / threadsPerBlock;
-    compute_adjoint_doubling_spin0_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_doubling1D.data());
+    compute_adjoint_doubling_spin0_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_adjoint_doubling1D.data());
     cudaDeviceSynchronize();
     cudaError_t errSync  = cudaGetLastError();
     cudaError_t errAsync = cudaDeviceSynchronize();

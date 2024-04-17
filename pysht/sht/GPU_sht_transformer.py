@@ -62,7 +62,8 @@ class GPU_SHTns_transformer():
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        return self.constructor.cu_spat_to_SH(synthmap.data.ptr, gclm.data.ptr)
+        self.constructor.cu_spat_to_SH(synthmap.data.ptr, gclm.data.ptr)
+        return gclm
     
 
     def synthesis_der1(self, gclm: np.int64, out: np.int64, nthreads=None):
