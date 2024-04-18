@@ -17,13 +17,12 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 runinfos = [
-    ("CPU", "lenspyx"),
-    ("CPU", "duccnufft"),
+    # ("CPU", "lenspyx"),
+    # ("CPU", "duccnufft"),
     ("GPU", "cufinufft")
 ]
-epsilons = [1e-8]
-lmaxs = [256*n-1 for n in np.arange(9, 11)]
-# lmaxs = [np.array([2559, 3071, 3839, 4095, 4607])[0]]
+epsilons = [1e-5]
+lmaxs = [256*n-1 for n in np.arange(14, 20)]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
@@ -83,12 +82,14 @@ for epsilon in epsilons:
                     if backend == 'CPU':
                         if solver == 'lenspyx':
                             defres[backend][solver] = t.lenmap2gclm(
-                                    np.atleast_2d(Tsky2), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing', ptg=None)
+                                    np.atleast_2d(Tsky2.astype(np.float32)), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing', ptg=None)
                         else:
                             defres[backend][solver] = t.lenmap2gclm(
-                                    np.atleast_2d(Tsky2), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
+                                    np.atleast_2d(Tsky2.astype(np.float32)), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
                     elif backend == 'GPU':
-                        defres[backend][solver] = t.lenmap2gclm(np.atleast_2d(Tsky2), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
-        except:
-            pass
+                        defres[backend][solver] = t.lenmap2gclm(np.atleast_2d(Tsky2.astype(np.float32)), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
+        except Exception as e:
+            print(e)
+            sys.exit()
+            # continue
     

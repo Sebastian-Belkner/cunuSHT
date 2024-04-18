@@ -358,7 +358,8 @@ class CPU_DUCCnufft_transformer:
             nthreads = self.nthreads if nthreads is None else nthreads
             assert lenmap.ndim == 2, lenmap.ndim
             assert not np.iscomplexobj(lenmap), (spin, lenmap.ndim, lenmap.dtype)
-            lenmap = np.atleast_2d(lenmap)
+            lenmap = np.atleast_2d(lenmap, dtype=np.float64) if self.single_prec else np.atleast_2d(lenmap, dtype=np.float32)
+            lenmap = lenmap.astype(ctype[lenmap.dtype])
             return lenmap
         
         @debug_decorator
@@ -376,8 +377,6 @@ class CPU_DUCCnufft_transformer:
                 plan = self.make_plan(lmax, spin)
                 plan.nu2u(lenmap=lenmap, out=fc, forward=True, verbosity=self.verbosity)
             else:
-                lenmap = lenmap.astype(ctype[lenmap.dtype])
-                fc = fc.astype(ctype[fc.dtype])
                 fc = ducc0.nufft.nu2u(
                     points=lenmap, coord=ptg, forward=True,
                     epsilon=self.epsilon, nthreads=self.nthreads,
@@ -424,7 +423,7 @@ class CPU_DUCCnufft_transformer:
         nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
         
         lenmap = setup(self, lenmap, nthreads)[0]
-        fc = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=lenmap.dtype)
+        fc = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=ctype[lenmap.dtype])
         fc = nuFFT(self, lenmap, np.array([pointing_theta, pointing_phi]).T, fc)[0]
         dmap = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=lenmap.dtype)
         dmap = C2C(self, fc, dmap)[0]
@@ -480,8 +479,10 @@ class CPU_Lenspyx_transformer:
             self.deflectionlib.execmode = self.execmode
             nthreads = self.nthreads if nthreads is None else nthreads
             gclm = np.atleast_2d(gclm)
-            if self.single_prec and gclm.dtype != np.complex64:
+            if self.single_prec:
                 gclm = gclm.astype(np.complex64)
+            else:
+                gclm = gclm.astype(np.complex128)
 
             return gclm
         
@@ -534,6 +535,7 @@ class CPU_Lenspyx_transformer:
             self.deflectionlib.execmode = self.execmode
             nthreads = self.nthreads if nthreads is None else nthreads
             lenmap = np.atleast_2d(lenmap)
+            lenmap = lenmap.astype(np.float64) if not self.single_prec else lenmap.astype(np.float32)
 
             return lenmap
           
@@ -551,9 +553,10 @@ class CPU_Lenspyx_transformer:
         
         if ptg is None:
             ptg = dlm2pointing(self)[0]
+            ptg = np.array(ptg, dtype=np.float128) if not self.single_prec else np.array(ptg, dtype=np.float64)
         lenmap = _setup(self, lenmap, execmode, nthreads)
         
-        gclm_out = np.empty((1,nalm), dtype=complex)
+        gclm_out = np.empty((1,nalm), dtype=np.complex128) if not self.single_prec else np.empty((1,nalm), dtype=np.complex64)
         gclm = _adjoint_synthesis_general(self, lenmap=lenmap, gclm_out=gclm_out, spin=spin, ptg=ptg)[0]
 
         if self.execmode == 'timing':
