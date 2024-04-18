@@ -388,10 +388,7 @@ class CPU_DUCCnufft_transformer:
         @timing_decorator
         @shape_decorator       
         def C2C(self, fc, dmap):
-            # dmap = ducc0.fft.c2c(dmap, axes=(0, 1), forward=False, inorm=2, nthreads=nthreads, out=dmap)
             if spin == 0:
-                print("C2C: ", fc.shape, dmap.shape)
-                print("dtypes: ", fc.dtype, dmap.dtype)
                 dmap = ducc0.fft.c2c(fc, axes=(0, 1), inorm=2, nthreads=nthreads, out=dmap.astype(complex), forward=False)
             return tuple([dmap])
 
@@ -424,7 +421,7 @@ class CPU_DUCCnufft_transformer:
         pointing_theta, pointing_phi = None, None
         pointing_theta, pointing_phi = dlm2pointing(self, pointing_theta, pointing_phi)
         
-        nalm = ((lmax+1)*(lmax+2)//2)
+        nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
         
         lenmap = setup(self, lenmap, nthreads)[0]
         fc = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=lenmap.dtype)
@@ -544,15 +541,13 @@ class CPU_Lenspyx_transformer:
         @shape_decorator
         @debug_decorator
         def _adjoint_synthesis_general(self, lenmap, ptg, spin, gclm_out):
-            # res = self.deflectionlib.lenmap2gclm(gclm=gclm, mmax=mmax, spin=spin, ptg=ptg)
             res = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=lenmap, loc=ptg, sht_mode=ducc_sht_mode(gclm_out, spin), spin=spin, alm=gclm_out)
             return tuple([res])
-        
         
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('lenspyx')
         
-        nalm = ((lmax+1)*(lmax+2)//2)
+        nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
         
         if ptg is None:
             ptg = dlm2pointing(self)[0]

@@ -85,7 +85,7 @@ class Geom:
         """Number of alm coefficients for a given lmax and mmax
 
         """
-        return (lmax + 1) * (mmax + 1)
+        return ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
 
     def restrict(self, tht_min:float, tht_max:float, northsouth_sym:bool, update_ringstart=False):
         """Returns a geometry with restricted co-latitude range

@@ -305,7 +305,7 @@ class GPU_cufinufft_transformer:
         @timing_decorator
         @shape_decorator
         def nuFFT(self, lenmap, ptg_theta, ptg_phi, fc):
-            fc = cufinufft.nufft2d1(data=lenmap.astype(complex), x=ptg_theta, y=ptg_phi, n_modes=(2*self.ntheta_CAR-2, self.nphi_CAR), isign=1, eps=self.epsilon)
+            fc = cufinufft.nufft2d1(data=lenmap[0].reshape(self.nphi_CAR,-1).flatten().astype(complex), x=ptg_phi, y=ptg_theta, n_modes=tuple(np.array([self.nphi_CAR, 2*self.ntheta_CAR-2])[::-1]), isign=-1, eps=self.epsilon)
             return tuple([fc])
         
         @debug_decorator
@@ -327,10 +327,10 @@ class GPU_cufinufft_transformer:
         @timing_decorator
         @shape_decorator
         def adjoint_synthesis(self, synthmap, out):
-            out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
+            out = self.cc_transformer.adjoint_synthesis_cupy(synthmap.reshape(self.ntheta_CAR,-1).T.flatten(), gclm=out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
             return tuple([out])
    
-        nalm = ((lmax+1)*(lmax+2)//2)
+        nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
         
         if pointing_theta is None or pointing_phi is None:
             pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
@@ -339,9 +339,10 @@ class GPU_cufinufft_transformer:
             
         lenmap = setup(self, lenmap)
         fc = cp.array((self.ntheta_CAR, self.nphi_CAR), dtype=np.complex)
+        self.timer.add('Transfers ->')
         fc = nuFFT(self, lenmap, pointing_phi, pointing_theta, fc)[0]
         CARdmap = None
-        CARdmap = C2C(self, fc, CARdmap)[0]
+        CARdmap = C2C(self, cufft.fftshift(fc, axes=(0,1)), CARdmap)[0]
         _ = np.zeros(shape=(self.ntheta_CAR*self.nphi_CAR))
         CARmap = cp.array(_, dtype=np.double)
         synthmap = adjoint_doubling(self, CARdmap.flatten().astype(np.double), CARmap)[0]
