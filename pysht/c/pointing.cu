@@ -173,6 +173,77 @@ __global__ void compute_pointing_1Dto1D_stepbystep(Scalar* pt, Scalar* pp, const
     }
 }
 
+template <typename Scalar>
+__global__ void compute_pointing_lowmem(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
+    //idx is nring
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    double PI = 3.141592653589793238;
+    if (idx <= nring) {
+        const int ringstart = ringstarts[idx];
+        const int npixring = nphis[idx];
+        double sint = sin(thetas[idx]); 
+        double cost = cos(thetas[idx]);
+
+        for (int i = ringstart; i < ringstart+npixring; i++) {
+            kl.d[i] = spin1_theta[i] * spin1_theta[i] + spin1_phi[i] * spin1_phi[i];
+        }
+        if (dev_isbigger(kl.d, ringstart, ringstart+npixring, 0.001)){
+            for (int i = ringstart; i < ringstart+npixring; i++) {
+                kl.sind_d[i] = sin(sqrt(kl.d[i])) / sqrt(kl.d[i]);
+                kl.cos_a[i] = cos(sqrt(kl.d[i]));
+                pt[i] = atan2(sqrt((sint * kl.cos_a[i] + cost * spin1_theta[i] * kl.sind_d[i])*(sint * kl.cos_a[i] + cost * spin1_theta[i] * kl.sind_d[i]) + (- spin1_phi[i] * kl.sind_d[i])*(- spin1_phi[i] * kl.sind_d[i])),  cost * kl.cos_a[i] - sint * spin1_theta[i] * kl.sind_d[i]);
+                pp[i] = phi0[idx] + (i-ringstart) * (2. * PI / npixring) - atan2(-spin1_phi[i] * kl.sind_d[i], kl.np1[i]);
+                pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
+            }
+        } else {
+            for (int i = ringstart; i < ringstart+npixring; i++) {
+                kl.sind_d[i] = 1. + -1./6. * d[i] * (1. - 1./20. * d[i] *(1. - 1./42. * d[i]));
+                kl.cos_a[i] = 1. + kl.d[i] * ( -0.5 + kl.d[i]/24. * (1. - kl.d[i]/30. * (1. - kl.d[i]/56.)));
+                pt[i] = atan2(sqrt((sint * kl.cos_a[i] + cost * spin1_theta[i] * kl.sind_d[i])*(sint * kl.cos_a[i] + cost * spin1_theta[i] * kl.sind_d[i]) + (- spin1_phi[i] * kl.sind_d[i])*(- spin1_phi[i] * kl.sind_d[i])),  cost * kl.cos_a[i] - sint * spin1_theta[i] * kl.sind_d[i]);
+                pp[i] = phi0[idx] + (i-ringstart) * (2. * PI / npixring) - atan2(-spin1_phi[i] * kl.sind_d[i], kl.np1[i]);
+                pp[i] = (pp[i] >= 2*PI) ? (pp[i] - 2.*PI) : pp[i];
+            }
+        }
+    }
+}
+
+template <typename Scalar>
+void CUpointing_1Dto1D_lowmem(
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> thetas,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> phi0,
+    nb::ndarray<const size_t, nb::ndim<1>, nb::device::cuda> nphis,
+    nb::ndarray<const size_t, nb::ndim<1>, nb::device::cuda> ringstarts,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> spin1_theta,
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> spin1_phi,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pt,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_pp) {
+
+    const size_t size = thetas.size();
+    const size_t npix = spin1_theta.size();
+    const size_t nring = ringstarts.size();
+    size_t block_size = 256;
+    size_t num_blocks = (size + block_size - 1) / block_size;
+
+    KernelLocals kl;
+    double *dev_sind_d, *dev_cos_a;
+    double *dev_d;
+
+    cudaMalloc((void**)&dev_sind_d, npix * sizeof(double));
+    cudaMalloc((void**)&dev_d, npix * sizeof(double));
+    cudaMalloc((void**)&dev_cos_a, npix * sizeof(double));
+
+    kl.phi = dev_phi;
+    kl.sind_d = dev_sind_d;
+    kl.d = dev_d;
+    kl.cos_a = dev_cos_a;
+
+    compute_pointing_1Dto1D_lowmem<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), phi0.data(), nphis.data(), ringstarts.data(), spin1_theta.data(), spin1_phi.data(), nring, npix, kl, size);
+    cudaDeviceSynchronize();
+
+    cudaFree(dev_d);
+    cudaFree(dev_sind_d);
+    cudaFree(dev_cos_a);
+}
 
 template <typename Scalar>
 __global__ void compute_pointing_1Dto1D(Scalar* pt, Scalar* pp, const Scalar* thetas, const Scalar* phi0, const size_t* nphis, const size_t* ringstarts, const Scalar* spin1_theta, const Scalar* spin1_phi, const size_t nring, const size_t npix, KernelLocals kl, const size_t size) {
@@ -493,7 +564,7 @@ void CUpointing_cparr(
 
 NB_MODULE(popy, m) {
     m.def("CUpointing_1Dto1D",
-        &CUpointing_1Dto1D<double>,
+        &CUpointing_1Dto1D_lowmem<double>,
         "thetas"_a.noconvert(),
         "phi0"_a.noconvert(),
         "nphis"_a.noconvert(),
