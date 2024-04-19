@@ -27,6 +27,9 @@ def Cpointing_2Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, ou
     
 def Cpointing_1Dto1D(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
     popy.CUpointing_1Dto1D(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
+    
+def Cpointing_1Dto1D_lowmem(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
+    popy.CUpointing_1Dto1D_lowmem(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
 
 def Cdoubling_ptrs(pointings, nring, nphi):
     memaddress = dopy.Cdoubling_ptrs(pointings.data.ptr, nring, nphi)

@@ -157,8 +157,22 @@ NB_MODULE(dopy, m) {
         "nphi"_a.noconvert(),
         "outarr_doubling1D"_a.noconvert()
     );
+    m.def("CUdoubling_1D",
+        &CUdoubling_1D<float>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_doubling1D"_a.noconvert()
+    );
     m.def("CUadjoint_doubling_1D",
         &CUadjoint_doubling_1D<double>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_adjoint_doubling1D"_a.noconvert()
+    );
+    m.def("CUadjoint_doubling_1D",
+        &CUadjoint_doubling_1D<float>,
         "synth1D"_a.noconvert(),
         "nring"_a.noconvert(),
         "nphi"_a.noconvert(),

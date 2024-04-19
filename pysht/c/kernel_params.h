@@ -20,14 +20,15 @@ typedef struct {
     double *philocs;
 } KernelLocals_lp;
 
-typedef struct {
-    double *phi;
-    double *philocs;
-    double *sind_d, *a, *d;
-    double *cos_a, *twohav_aod;
-    double *e_a1, *e_a2, *e_a3;
-    double *np1, *np2, *np3;
-    double *npt, *npp;
-} KernelLocals;
+template <typename Scalar>
+struct KernelLocals{
+    Scalar *phi;
+    Scalar *philocs;
+    Scalar *sind_d, *a, *d;
+    Scalar *cos_a, *twohav_aod;
+    Scalar *e_a1, *e_a2, *e_a3;
+    Scalar *np1, *np2, *np3;
+    Scalar *npt, *npp;
+};
 
 #endif
