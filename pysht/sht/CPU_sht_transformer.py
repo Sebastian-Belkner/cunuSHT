@@ -1,6 +1,7 @@
 import numpy as np
 import healpy as hp
 
+import sys
 from ducc0.sht.experimental import (
     synthesis as ducc_synthesis,
     adjoint_synthesis as ducc_adjoint_synthesis
@@ -34,7 +35,7 @@ class CPU_SHT_DUCC_transformer():
         return ducc_synthesis(alm=gclm, theta=self.geom.theta, lmax=lmax, mmax=mmax, nphi=self.geom.nph, spin=spin, phi0=self.geom.phi0,
                          nthreads=nthreads, ringstart=self.geom.ofs, map=map, **kwargs)
 
-    def adjoint_synthesis(self, m: np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, alm=None, apply_weights=True, **kwargs):
+    def adjoint_synthesis(self, m: np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, alm=None, apply_weights=False, **kwargs):
         """Wrapper to ducc backward SHT
 
             Return an array with leading dimension 1 for spin-0 or 2 for spin non-zero

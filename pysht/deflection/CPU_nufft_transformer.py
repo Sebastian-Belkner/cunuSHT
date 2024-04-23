@@ -477,9 +477,7 @@ class CPU_DUCCnufft_transformer:
     @timing_decorator
     # @shape_decorator
     def adjoint_synthesis(self, dmap, gclm, spin, lmax, mmax, sht_mode='STANDARD'):
-        # print("shapes: ", dmap.squeeze().shape, gclm.shape)
-        # print("dtypes: ", dmap.dtype, gclm.dtype)
-        return ducc0.sht.experimental.adjoint_synthesis_2d(map=dmap.real, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=sht_mode, alm=gclm)
+        return ducc0.sht.experimental.adjoint_synthesis(map=dmap.real, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=sht_mode, alm=gclm)
 
     @debug_decorator
     @timing_decorator

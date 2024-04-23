@@ -423,7 +423,12 @@ class GPU_cufinufft_transformer:
         fc = self.nuFFT2d1(pointmap, pointing_theta, pointing_phi)
         CARdmap = self.iC2C(cufft.fftshift(fc, axes=(1,2)))
         synthmap = self.adjoint_doubling(CARdmap.real.flatten())
+        # TODO undo the weighting.. but not sure which are the correct weights atm / how to get them
+        print(self.geom.npix(), synthmap.shape, len(self.geom.ofs), self.constructor.spat_shape)
+        for of, w, npi in zip(self.geom.ofs, self.geom.weight, self.geom.nph):
+            synthmap[of:of + npi] /= w
         synthmap = synthmap.reshape(-1,self.nphi_CAR).T.flatten()
+
         alm = self.adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, out=alm)
         alm = alm[0].get()
         self.timer.add('Transfer <-')
