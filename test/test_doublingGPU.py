@@ -12,7 +12,7 @@ from delensalot.sims.sims_lib import Xunl, Xsky
 
 import pysht
 import pysht.c.podo_interface as podo
-from pysht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cdoubling_ptrs
+from pysht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cadjoint_doubling_1D
 
 import ducc0
 
@@ -27,21 +27,12 @@ def input_values(nring, npix):
     return locals()
 
 test_cases = [ 
-    (lmax, lmax**2*2) for lmax in [2**n-1 for n in np.arange(6, 7)]
+    (lmax, 'single_prec') for lmax in [2**n-1 for n in np.arange(5, 7)]
     #   (8192, 1024*2**n) for n in np.arange(1, 10) #range(16) is maximum possible
     ]
         
 class TestUnit(unittest.TestCase):
-    
-    @unittest.skip("Skipping this test method for now")
-    def test_unit_Cdoubling_cparr(self):
-        for test_case in test_cases:
-            with self.subTest(input_value=test_case):
-                CARmap = cp.random.randn((test_case[-1]),dtype=np.double)
-                doublinga = Cdoubling_ptrs(synth2D=CARmap, nring=test_case[0], nphi=test_case[1]//test_case[0])  
-                print("return value: {}".format(doublinga))
-                self.assertEqual(doublinga, 100)
-                
+              
     def test_unit_Cdoubling1D(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
@@ -62,17 +53,48 @@ class TestUnit(unittest.TestCase):
                 doubling1D_py[ntheta:, nphihalf:] = doubling1D_py[ntheta-2:0:-1, :nphihalf]
                 
                 # self.assertAlmostEquals(np.array(out.get()), doubling1D_py.flatten())
-
-    @unittest.skip("Skipping this test method for now")   
-    def test_unit_Cdoubling_cparr2D(self):
+                
+                
+    def test_unit_Cadjoint_doubling1D(self):
+        """doubling into adjoint doubling, compares against Python implementation
+        """
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
-                CARmap = cp.random.randn((test_case[0], test_case[1]//test_case[-1]),dtype=np.double)
-                Cdoubling_cparr2D(synth2D=CARmap, nring=test_case[0], nphi=test_case[1]//test_case[0])  
+                lmax = test_case[0]
+                single_prec = True if test_case[1] == 'single_prec' else False
+                dtype = np.float32 if single_prec else np.double
+                
+                ntheta_CAR = (ducc0.fft.good_size(lmax + 2) + 3) // 4 * 4
+                nphi_CAR = ducc0.fft.good_size(lmax + 1) * 2
+                synth1D = np.arange(ntheta_CAR * nphi_CAR, dtype=dtype).reshape(nphi_CAR,-1).T.flatten()
+                doubling1D_py = np.zeros((2 * ntheta_CAR-2, nphi_CAR), dtype=dtype)
+                synth1D_py = np.copy(synth1D.reshape(ntheta_CAR, nphi_CAR))
+                
+                # This does the doubling
+                nphihalf = nphi_CAR//2
+                doubling1D_py[:ntheta_CAR, :] = synth1D_py
+                doubling1D_py[ntheta_CAR:, :nphihalf] = doubling1D_py[ntheta_CAR-2:0:-1, nphihalf:]
+                doubling1D_py[ntheta_CAR:, nphihalf:] = doubling1D_py[ntheta_CAR-2:0:-1, :nphihalf]
+
+                # This does the adjoint doubling
+                d1D_py = np.copy(doubling1D_py)
+                d1D_py[1:ntheta_CAR - 1, :nphihalf] += d1D_py[-1:ntheta_CAR - 1:-1, nphihalf:]#d1D_py[-1:ntheta - 1:-1, nphihalf:]
+                d1D_py[1:ntheta_CAR - 1, nphihalf:] += d1D_py[-1:ntheta_CAR - 1:-1, :nphihalf]#d1D_py[-1:ntheta - 1:-1, :nphihalf]
+                d1D_py = d1D_py[:ntheta_CAR, :]
+                map_adj = np.empty((1, ntheta_CAR, nphi_CAR), dtype=dtype)
+                map_adj[0] = d1D_py.real
+
+                # This is what we want to test
+                CARmap = cp.empty(shape=(ntheta_CAR*nphi_CAR), dtype=np.float32) if single_prec else cp.empty(shape=(ntheta_CAR*nphi_CAR), dtype=np.double)
+                CARdmap = cp.array(doubling1D_py.flatten(), dtype=np.float32) if single_prec else cp.array(doubling1D_py.flatten(), dtype=np.double)
+                Cadjoint_doubling_1D(CARdmap, int(ntheta_CAR), int(nphi_CAR), CARmap)
+                
+                
+                self.assertEqual(np.mean(CARmap.get()), np.mean(map_adj))
 
 
 class TestIntegration(unittest.TestCase):
-    
+
     def test_integration_synth2doubling(self):
         for test_case in test_cases:
             with self.subTest(input_value=test_case):
@@ -94,7 +116,6 @@ class TestIntegration(unittest.TestCase):
                 CARdmap = cp.zeros(ntheta_dCAR*nphi_dCAR, dtype=np.double)
                 cc_transformer.synthesis_cupy(cp.array(gclm), CARmap, spin=0, lmax=lmax, mmax=lmax, nthreads=10)
                 
-                print("shapes: ", CARmap.shape, CARdmap.shape, ntheta_CAR, nphi_CAR, ntheta_dCAR, nphi_dCAR)
                 podo.Cdoubling_1D(CARmap.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
                 
                 doubling1D_py = np.zeros((ntheta_dCAR, nphi_dCAR))

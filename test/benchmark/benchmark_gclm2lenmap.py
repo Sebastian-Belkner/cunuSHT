@@ -11,9 +11,9 @@ from delensalot.sims.sims_lib import Xunl, Xsky
 
 
 runinfos = [
-    ("CPU", "lenspyx"),
+    # ("CPU", "lenspyx"),
     # ("CPU", "duccnufft"),
-    # ("GPU", "cufinufft")
+    ("GPU", "cufinufft")
 ]
 epsilons = [1e-4]
 lmaxs = [256*n-1 for n in np.arange(10, 25)]

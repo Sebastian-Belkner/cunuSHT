@@ -10,7 +10,7 @@ import cupy as cp
 import shtns
 
 test_cases = [ 
-              (lmax, lmax) for lmax in [2**n-1 for n in np.arange(6, 8)]
+    (lmax, lmax) for lmax in [2**n-1 for n in np.arange(6, 8)]
 ]
 
 
