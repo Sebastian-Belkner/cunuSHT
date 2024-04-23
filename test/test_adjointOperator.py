@@ -91,8 +91,8 @@ def contract_almxblm(alm, blm):
 
 runinfos = [
     # ("CPU", "lenspyx", 'ducc'),
-    # ("CPU", "duccnufft", 'ducc'),
-    ("GPU", "cufinufft", 'shtns')
+    ("CPU", "duccnufft", 'ducc'),
+    # ("GPU", "cufinufft", 'shtns')
     ]
 
 class TestUnit(unittest.TestCase):
@@ -122,7 +122,6 @@ class TestUnit(unittest.TestCase):
                 synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=geominfo, lenjob_geominfo=geominfo, epsilon=epsilon)
                 philm = synunl.get_sim_phi(0, space='alm')
                 toydlm = hp.almxfl(philm, np.sqrt(np.arange(phi_lmax + 1, dtype=float) * np.arange(1, phi_lmax + 2)))
-                
                 
                 kwargs = {
                     'geominfo': geominfo,
