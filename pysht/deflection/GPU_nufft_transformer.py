@@ -95,17 +95,15 @@ class deflection:
         
         # @debug_decorator
         @timing_decorator
-        # @shape_decorator
         def _spin__1___synth(self, dlm_scaled, out_theta, out_phi):
             self.synthesis_der1_cupy(dlm_scaled, out_theta, out_phi, nthreads=self.nthreads)
-            return tuple([out_theta, out_phi])
+            return cp.array([out_theta, out_phi])
           
         # @debug_decorator
         @timing_decorator
-        @shape_decorator
         def _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi):
             podo.Cpointing_1Dto1D(cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi, pointing_theta, pointing_phi)
-            return tuple([pointing_theta, pointing_phi])
+            return cp.array([pointing_theta, pointing_phi])
         
         dlm_scaled = cp.array(dlm_scaled, dtype=np.complex)
         cpt = cp.array(self.geom.theta.astype(np.double), dtype=cp.double)
@@ -120,7 +118,7 @@ class deflection:
         _pointing(self, spin1_theta.T.flatten(), spin1_phi.T.flatten(), cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
         
         del spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, dlm_scaled
-        return tuple([pointing_theta, pointing_phi])
+        return cp.array([pointing_theta, pointing_phi])
 
 
 class GPU_cufinufft_transformer:
@@ -166,7 +164,9 @@ class GPU_cufinufft_transformer:
         self.nphi_CAR = 2 * self.nphihalf_CAR
         self.geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
         self.cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(self.geominfo_CAR)
-
+        w = self.cc_transformer.constructor.gauss_wts() 
+        w = np.hstack((w, np.flip(w)))
+        self.iw = cp.array(1/w)
 
     def _assert_type(self, lenmap, gclm_out, dlm):
         assert isinstance(lenmap, cp.ndarray), "only accepting cupy arrays here, {} is {}".format("lenmap", type(lenmap))
@@ -219,113 +219,7 @@ class GPU_cufinufft_transformer:
 
     def __getattr__(self, name):
         return getattr(self.instance, name)
-        
-
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, pointing_theta:cp.array = None, pointing_phi:cp.array = None, nthreads=None, polrot=True, execmode='normal'):
-        """
-        Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
-        so no transfers needed to CPU between them.
-        
-        gclm and dlm are assumed to be on host, will be transfered in _setup().
-        Can provide pointing_theta and pointing_phi to avoid dlm2pointing() call.
-        """
-        self.ret = {}
-            
-        # @timing_decorator
-        def _setup(self, gclm, execmode, nthreads):
-            assert execmode in ['normal', 'debug', 'timing']
-            print('Running in {} execution mode'.format(execmode))
-            nthreads = self.nthreads if nthreads is None else nthreads
-            gclm = np.atleast_2d(gclm)
-            if self.single_prec and gclm.dtype != np.complex64:
-                gclm = gclm.astype(np.complex64)
-            gclm = cp.array(gclm, dtype=np.complex)
-            self.execmode = execmode
-            self.deflectionlib.execmode = self.execmode
-            return gclm
-        
-        @debug_decorator
-        @timing_decorator
-        @shape_decorator
-        def _synthesis(self, gclm, out):
-            self.cc_transformer.synthesis_cupy(gclm, out, spin=0, lmax=lmax, mmax=mmax, nthreads=nthreads)
-            return tuple([out])
-
-        @debug_decorator
-        @timing_decorator
-        @shape_decorator
-        def _doubling(self, map_in, ntheta, nphi, out):
-            podo.Cdoubling_1D(map_in, ntheta, nphi, out)
-            return tuple([out])
-        
-        @debug_decorator
-        @timing_decorator
-        @shape_decorator
-        def _C2C(self, map_in, out):
-            out = scipy.fft.fft2(map_in, norm='forward')
-            return tuple([out])
-        
-        @debug_decorator
-        @timing_decorator
-        @shape_decorator
-        def _nuFFT(self, fc, ptg_theta, ptg_phi, result):
-            result = cufinufft.nufft2d2(data=fc, x=ptg_theta, y=ptg_phi, isign=1, eps=self.epsilon)
-            return tuple([result])
-
-        self.timer = timer(1, prefix=self.backend)
-        self.timer.start('gclm2lenmap_cupy()')
-        self.timing, self.debug = None, None
-        gclm = _setup(self, gclm, execmode, nthreads)
-        ntheta_dCAR, nphi_dCAR = 2*self.ntheta_CAR-2, self.nphi_CAR
-        CARmap = cp.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
-        CARdmap = cp.zeros((2*self.cc_transformer.constructor.nlat-2)*self.cc_transformer.constructor.nphi, dtype=np.double)
-        self.timer.add('Transfers ->')
-        fc, lenmap = None, None #TODO decide if these preallocated or not
-        
-        @debug_decorator
-        @timing_decorator
-        @shape_decorator
-        def dlm2pointing(self, dlm, pointing_theta, pointing_phi):
-            self.deflectionlib.dlm2pointing(dlm, pointing_theta, pointing_phi)
-            return tuple([pointing_theta, pointing_phi])
-            
-        if pointing_theta is None or pointing_phi is None:
-            pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
-            pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
-            dlm2pointing(self, dlm, pointing_theta, pointing_phi)
-
-        _synthesis(self, gclm, CARmap)
-        del gclm
-        _doubling(self, CARmap.reshape(self.nphi_CAR,-1).T.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
-        del CARmap
-        fc = _C2C(self, CARdmap.reshape(ntheta_dCAR,-1).T, fc)[0]
-        del CARdmap
-        fc = cufft.fftshift(fc, axes=(0,1))
-        self.timer.add('FFTshift')
-        print('dtypes before ensuring; ', pointing_theta.dtype, pointing_phi.dtype)
-        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
-        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
-        print('dtypes after ensuring: ', pointing_theta.dtype, pointing_phi.dtype)
-        result = cufinufft.nufft2d2(x=pointing_phi, y=pointing_theta, data=fc, isign=1)
-        self.timer.add("nuFFT init")
-        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
-        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
-        lenmap = _nuFFT(self, fc, pointing_phi, pointing_theta, lenmap)
-        self.timer.add('gclm2lenmap')
-        result = lenmap[0].get()
-        self.timer.add('Transfer <-')
-        
-        if self.execmode == 'timing':
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))
-            print(self.timer)
-            print("::timing:: stored new timing data for lmax {}".format(lmax))
-        if self.execmode == 'debug':
-            print("::debug:: Returned component results")
-            return self.ret
-        del fc, lenmap, pointing_theta, pointing_phi
-        return result
-
-
+    
     @debug_decorator
     @timing_decorator
     # @shape_decorator
@@ -333,46 +227,162 @@ class GPU_cufinufft_transformer:
         pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
         pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
         self.deflectionlib.dlm2pointing(dlm_scaled, pointing_theta, pointing_phi)
-        return tuple([pointing_theta, pointing_phi])
-        
-    @debug_decorator
-    @timing_decorator
-    # @shape_decorator
-    def nuFFT2d1(self, lenmap, ptg_theta, ptg_phi): #.reshape(self.geom.nph[0],-1).T.flatten()
-        fc = cufinufft.nufft2d1(data=lenmap, x=ptg_theta, y=ptg_phi, n_modes=(2*self.ntheta_CAR-2,self.nphi_CAR), isign=-1, eps=self.epsilon)
-        return fc
+        return cp.array([pointing_theta, pointing_phi])       
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def iC2C(self, fc):
-        map_out = scipy.fft.ifft2(fc[0], norm='backward')
-        return map_out
+    def synthesis(self, alm, lmax, mmax, nthreads, out):
+        self.cc_transformer.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        return out
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def adjoint_synthesis(self, synthmap, lmax, mmax, nthreads, out):
+        out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        return out
+
+    # @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def C2C(self, map_in, norm='forward', fc_out=None):
+        return scipy.fft.fft2(map_in, norm='forward')
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def iC2C(self, fc, norm='backward', map_out=None):
+        return scipy.fft.ifft2(fc[0], norm=norm)
+    
+    # @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def nuFFT2d2(self, fc, x, y, epsilon, map_out=None):
+        return cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon)
+    
+    # @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def nuFFT2d1(self, pointmap, nmodes, x, y, epsilon, fc_out=None): #.reshape(self.geom.nph[0],-1).T.flatten()
+        return cufinufft.nufft2d1(data=pointmap, x=x, y=y, n_modes=nmodes, isign=-1, eps=epsilon)
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def doubling(self, CARmap, ntheta_dCAR, nphi_dCAR, CARdmap):
+        podo.Cdoubling_1D(CARmap, ntheta_dCAR, nphi_dCAR, CARdmap)
+        return CARdmap   
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator        
-    def adjoint_doubling(self, CARdmap):
-        CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
-        podo.Cadjoint_doubling_1D(CARdmap, int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
+    def adjoint_doubling(self, CARdmap, ntheta_CAR, nphi_CAR, CARmap):
+        podo.Cadjoint_doubling_1D(CARdmap, ntheta_CAR, nphi_CAR, CARmap)
         return CARmap
 
-    @debug_decorator
-    @timing_decorator
-    # @shape_decorator
-    def adjoint_synthesis(self, synthmap, lmax, mmax, out):
-        out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, spin=0, lmax=lmax, mmax=mmax, nthreads=self.nthreads)
-        return out
-    
+    def synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+        pointing_theta, pointing_phi = loc[0], loc[1]
+        ntheta_dCAR, nphi_dCAR = 2*self.ntheta_CAR-2, self.nphi_CAR
+        CARmap = cp.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
+        CARdmap = cp.zeros((2*self.cc_transformer.constructor.nlat-2)*self.cc_transformer.constructor.nphi, dtype=np.double)
+        self.timer.add('Transfers ->')
+        self.synthesis(alm, lmax, mmax, nthreads, CARmap)
+        del alm
+        self.doubling(CARmap.reshape(self.nphi_CAR,-1).T.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
+        del CARmap
+        fc = None
+        # self.timer.reset()
+        # _ = scipy.fft.fft2(CARdmap.reshape(ntheta_dCAR,-1).T, norm='forward')
+        # self.timer.add("C2C init")
+        _C = CARdmap.reshape(ntheta_dCAR,-1).T.astype(np.complex64)
+        _fc_out = None # fc.astype(np.complex64)
+        fc = self.C2C(_C, fc_out=_fc_out)
+        del CARdmap
+        # _ = self.nuFFT2d2(fc=cufft.fftshift(fc, axes=(0,1)), x=pointing_phi, y=pointing_theta, epsilon=epsilon, map_out=pointmap)
+        _fc = cufft.fftshift(fc, axes=(0,1)).astype(np.complex64)
+        _x = pointing_phi.astype(np.float32)
+        _y = pointing_theta.astype(np.float32)
+        self.timer.reset()
+        _ = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon)
+        self.timer.add("nuFFT init")
+        pointmap = self.nuFFT2d2(fc=_fc, x=_x, y=_y, epsilon=epsilon, map_out=pointmap)
+        return pointmap
+        
+    def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+        # TODO use nthreads, spin, verbose
+        pointing_theta, pointing_phi = loc[0], loc[1]
+        # _ = self.nuFFT2d1(pointmap, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
+        self.timer.add("nuFFT init")
+        fc = self.nuFFT2d1(pointmap, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
+        
+        CARdmap = self.iC2C(cufft.fftshift(fc, axes=(1,2)))
+        
+        CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
+        synthmap = self.adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
+        synthmap = synthmap.reshape(-1,self.nphi_CAR)
+        synthmap = synthmap * self.iw[:,None] # TODO replace with shtns_no_weights-flag once it exists
+        synthmap = synthmap.T.flatten()
 
-    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, ptg=None, execmode='normal'):
+        alm = self.adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, nthreads=nthreads, out=alm)
+        
+        alm = alm[0].get()
+        self.timer.add('Transfer <-')
+        return alm
+    
+    def gclm2lenmap(self, gclm, dlm_scaled, lmax, mmax, ptg=None, nthreads=None, polrot=True, lenmap=None, execmode='normal'):
+        """
+        Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
+        No h2d needed between them.
+        
+        gclm and dlm are assumed to be on host, will be transfered in _setup().
+        Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call.
+        """
+        self.ret = {}
+        self.timer = timer(1, prefix=self.backend)
+        self.timer.start('gclm2lenmap()')
+        
+        # @timing_decorator
+        def setup(self, nthreads):
+            assert execmode in ['normal', 'debug', 'timing']
+            print('Running in {} execution mode'.format(execmode))
+            self.nthreads = self.nthreads if nthreads is None else nthreads
+            self.execmode = execmode
+            self.deflectionlib.execmode = self.execmode
+
+        setup(self, nthreads)
+        
+        if ptg is None:
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled)
+        else:
+            pointing_theta, pointing_phi = ptg.T
+        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
+        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
+        
+        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbosity=self.verbosity)
+        
+        result = lenmap[0].get()
+        self.timer.add('Transfer <-')
+        
+        if self.execmode == 'timing':
+            self.timer.close('gclm2lenmap()')
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))
+            print(self.timer)
+            print("::timing:: stored new timing data for lmax {}".format(lmax))
+        if self.execmode == 'debug':
+            print("::debug:: Returned component results")
+            return self.ret
+        del lenmap, pointing_theta, pointing_phi
+        return result
+
+
+    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, nthreads:int, ptg=None, execmode='normal'):
         """
             Note:
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
                 lenmap must be theta contiguous
         """
         self.ret = {}
-        
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('lenmap2gclm()')
         
@@ -397,9 +407,10 @@ class GPU_cufinufft_transformer:
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
         
         ptg = cp.array([pointing_theta, pointing_phi])
-        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, spin, self.epsilon, nthreads, gclm_out, self.verbosity)
+        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, self.epsilon, nthreads, gclm_out, self.verbosity)
         
         if self.execmode == 'timing':
+            self.timer.close('lenmap2gclm()')
             self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/lenmap2gclm/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))
             print(self.timer)
             print("::timing:: stored new timing data for lmax {}".format(lmax))
@@ -408,38 +419,6 @@ class GPU_cufinufft_transformer:
             return self.ret
         del lenmap, pointing_theta, pointing_phi
         return gclm
-
-
-    def synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
-        assert 0, "implement if needed"
-        # return self.gclm2lenmap_cupy(lmax=lmax, mmax=mmax, alm=alm, pointing_theta=loc[0], pointing_phi=loc[1], spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, verbose=self.verbosity)
-    
-    def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, spin, epsilon, nthreads, alm, verbose):
-        # TODO use nthreads, spin, verbose
-        pointing_theta, pointing_phi = loc
-        cufinufft.nufft2d1(data=pointmap, x=pointing_phi, y=pointing_theta, n_modes=(self.nphi_CAR, 2*self.ntheta_CAR-2), isign=-1, eps=epsilon)
-        self.timer.add("nuFFT init")
-        
-        fc = self.nuFFT2d1(pointmap, pointing_theta, pointing_phi)
-        CARdmap = self.iC2C(cufft.fftshift(fc, axes=(1,2)))
-        synthmap = self.adjoint_doubling(CARdmap.real.flatten())
-        # TODO undo the weighting.. but not sure which are the correct weights atm / how to get them
-        print(self.geom.npix(), synthmap.shape, len(self.geom.ofs), self.constructor.spat_shape)
-        for of, w, npi in zip(self.geom.ofs, self.geom.weight, self.geom.nph):
-            synthmap[of:of + npi] /= w
-        synthmap = synthmap.reshape(-1,self.nphi_CAR).T.flatten()
-
-        alm = self.adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, out=alm)
-        alm = alm[0].get()
-        self.timer.add('Transfer <-')
-        return alm
-
-
-    def flip_tpg_2d(self, m):
-        # FIXME this should probably be lmax, not lmax_dlm
-        # dim of m supposedly (2, -1)
-        buff = np.array([_.reshape(2*(self.lmax_dlm+1),-1).T.flatten() for _ in m])
-        return buff
 
             
     def hashdict():

@@ -35,7 +35,7 @@ class CPU_SHT_DUCC_transformer():
         return ducc_synthesis(alm=gclm, theta=self.geom.theta, lmax=lmax, mmax=mmax, nphi=self.geom.nph, spin=spin, phi0=self.geom.phi0,
                          nthreads=nthreads, ringstart=self.geom.ofs, map=map, **kwargs)
 
-    def adjoint_synthesis(self, m: np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, alm=None, apply_weights=False, **kwargs):
+    def adjoint_synthesis(self, m: np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, alm=None, apply_weights=True, **kwargs):
         """Wrapper to ducc backward SHT
 
             Return an array with leading dimension 1 for spin-0 or 2 for spin non-zero
@@ -117,7 +117,6 @@ class CPU_SHT_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
-        print(gclm.size, self.constructor.nlm)
         buff = self.constructor.synth_grad(gclm)
         ret = np.array([a.flatten() for a in buff])
         return ret

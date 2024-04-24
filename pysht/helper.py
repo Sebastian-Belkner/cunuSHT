@@ -47,12 +47,11 @@ def debug_decorator(func):
         if not args[0].execmode == 'debug':
             return func(*args, **kwargs)
         res = func(*args, **kwargs)
-        buff = []
-        for re in res:
-            if type(re) == cp.ndarray:
-                buff.append(re.get())
-            elif type(re) == np.ndarray:
-                buff.append(re)
+        buff = None
+        if type(res) == cp.ndarray:
+            buff = res.get()
+        else:
+            buff = res
         args[0].ret.update({func.__name__.replace('___', ' ').replace('__', '-').replace('_', ''): np.array(buff)})
         return res
     return wrapper

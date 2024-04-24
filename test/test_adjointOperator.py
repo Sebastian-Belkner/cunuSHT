@@ -91,8 +91,8 @@ def contract_almxblm(alm, blm):
 
 runinfos = [
     # ("CPU", "lenspyx", 'ducc'),
-    ("CPU", "duccnufft", 'ducc'),
-    # ("GPU", "cufinufft", 'shtns')
+    # ("CPU", "duccnufft", 'ducc'),
+    ("GPU", "cufinufft", 'shtns')
     ]
 
 class TestUnit(unittest.TestCase):

@@ -1,25 +1,17 @@
 module load python cuda; source $pyshtenv; cd pysht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
-
-nvcc  -o pointing.so -shared -Xcompiler -fPIC pointing.cu
-
-nvcc  -o pointing.so -shared -Xcompiler -fPIC pointing.cpp pointing.cu
 nvcc  -o pysht/c/pointing.so -shared -Xcompiler -fPIC pysht/c/pointing.cpp pysht/c/pointing.cu
 
 srun python3 -m notebook --port=1234 --ip=$hostname
 
-
 # bind the c code to python
-
 cmake -S . -B build
 cmake --build build
 
 to install SHTns on the rusty cluster, make sure you the following to variables, otherwise SHTns will 'install' but not have updated GPU routines (not sure why)
 export CUDA_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0
 export LD_LIBRARY_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0/lib64
-
-python3 setup.py develop
 
 
 to run profiling:
@@ -33,6 +25,6 @@ to run profiling:
     pyprof2calltree -i output.pstats -k
     
 
-To profile this:
+To profile:
  1. `kernprof -l gclm2lenmap_GPU.py'`
  2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"

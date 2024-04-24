@@ -38,7 +38,7 @@ class GPU_SHTns_transformer():
 
 
     @shape_decorator
-    def synthesis(self, gclm: np.ndarray, spin, lmax, mmax, mode=None, nthreads=None):
+    def synthesis(self, gclm: np.ndarray, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
@@ -47,7 +47,7 @@ class GPU_SHTns_transformer():
         gclm = np.atleast_2d(gclm)
         return np.atleast_2d(self.constructor.synth(gclm).flatten())
     
-    def synthesis_cupy(self, gclm, out, spin, lmax, mmax, mode=None, nthreads=None):
+    def synthesis_cupy(self, gclm, out, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
@@ -56,7 +56,7 @@ class GPU_SHTns_transformer():
         return self.constructor.cu_SH_to_spat(gclm.data.ptr, out.data.ptr)
 
 
-    def adjoint_synthesis_cupy(self, synthmap, gclm, spin, lmax, mmax, mode=None, nthreads=None):
+    def adjoint_synthesis_cupy(self, synthmap, gclm, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
@@ -86,7 +86,7 @@ class GPU_SHTns_transformer():
         # gclm = np.atleast_2d(gclm)
         self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 
-    def analysis(self, map: np.ndarray, spin=None, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
+    def analysis(self, map: np.ndarray, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT

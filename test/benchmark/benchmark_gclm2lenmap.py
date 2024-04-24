@@ -8,17 +8,16 @@ import pysht
 import sys
 from time import process_time
 from delensalot.sims.sims_lib import Xunl, Xsky
-
+import cupy as cp
 
 runinfos = [
-    # ("CPU", "lenspyx"),
-    # ("CPU", "duccnufft"),
-    ("GPU", "cufinufft")
-]
-epsilons = [1e-4]
-lmaxs = [256*n-1 for n in np.arange(10, 25)]
-if "GPU" in [runinfo[0] for runinfo in runinfos]:
-    lmaxs = [256*n-1 for n in np.arange(18, 25) if n not in [11]]
+    # ("CPU", "lenspyx", 'ducc'),
+    # ("CPU", "duccnufft", 'ducc'),
+    ("GPU", "cufinufft", 'shtns')
+    ]
+epsilons = [1e-6]
+# lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
+lmaxs = [int(sys.argv[2])]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
@@ -34,26 +33,26 @@ for epsilon in epsilons:
             toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
             toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
 
-            shttransformer_desc = 'shtns' if runinfo[0] == 'GPU' else 'ducc'
             kwargs = {
                 'geominfo': geominfo,
                 'nthreads': 10,
                 'epsilon': epsilon,
-                'verbosity': 1,
+                'verbosity': 0,
                 'planned': False,
-                'single_prec': True,
-                'shttransformer_desc': shttransformer_desc
+                'single_prec': False,
+                'shttransformer_desc': runinfo[2]
             }
             
             deflection_kwargs = {
-                'geominfo': lenjob_geominfo,
-                'nthreads': 10,
-                'epsilon': epsilon,
-                'verbosity': 1,
-                'single_prec': True,
-                'mmax_dlm': phi_lmax,
                 'dlm': toydlm,
-            }
+                'mmax_dlm': phi_lmax,
+                'epsilon': epsilon,
+                'verbosity': 0,
+                'single_prec': False,
+                'nthreads': 10,
+                'geominfo': lenjob_geominfo,
+            }    
+            print(runinfo)
             backend = runinfo[0]
             defres.update({backend: {}}) if backend not in defres.keys() else None
             solver = runinfo[1]
@@ -69,7 +68,10 @@ for epsilon in epsilons:
                                 toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing', ptg=None)
                     else:
                         defres[backend][solver] = t.gclm2lenmap(
-                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
+                                toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing', ptg=None)
                 elif backend == 'GPU':
-                    defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
-            del t
+                    lenmap = cp.empty(t.constructor.spat_shape, dtype=cp.complex128)
+                    ll = np.arange(0,deflection_kwargs["mmax_dlm"]+1,1)
+                    dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+                    dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if not deflection_kwargs["single_prec"] else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
+                    defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, nthreads=10, lenmap=lenmap, execmode='timing')
