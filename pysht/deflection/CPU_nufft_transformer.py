@@ -638,7 +638,7 @@ class CPU_Lenspyx_transformer:
         if ptg is None:
             ptg = self.dlm2pointing()
             ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
-        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=lenmap, loc=ptg, sht_mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin)
+        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbosity)
 
         if self.execmode == 'timing':
             self.timer.close('lenmap2gclm()')
@@ -661,7 +661,8 @@ class CPU_Lenspyx_transformer:
         assert spin >= 0, spin
         gclm = np.atleast_2d(gclm)
         sth_mode = ducc_sht_mode(gclm, spin)
-        ptg = self._get_ptg()
+        if ptg is None:
+            ptg = self._get_ptg()
         thts, phis = ptg[pixs, 0], ptg[pixs, 1]
         nph = 2 * np.ones(thts.size, dtype=np.uint64)  # I believe at least 2 points per ring
         ofs = 2 * np.arange(thts.size, dtype=np.uint64)

@@ -17,7 +17,7 @@ runinfos = [
     ]
 epsilons = [1e-6]
 # lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
-lmaxs = [int(sys.argv[2])]
+lmaxs = [256*int(sys.argv[1])-1]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
@@ -37,8 +37,9 @@ for epsilon in epsilons:
                 'geominfo': geominfo,
                 'nthreads': 10,
                 'epsilon': epsilon,
-                'verbosity': 0,
+                'verbosity': 1,
                 'planned': False,
+                "plannednuFFT": False,
                 'single_prec': False,
                 'shttransformer_desc': runinfo[2]
             }
@@ -47,7 +48,7 @@ for epsilon in epsilons:
                 'dlm': toydlm,
                 'mmax_dlm': phi_lmax,
                 'epsilon': epsilon,
-                'verbosity': 0,
+                'verbosity': 1,
                 'single_prec': False,
                 'nthreads': 10,
                 'geominfo': lenjob_geominfo,
@@ -61,6 +62,7 @@ for epsilon in epsilons:
                 print("\nTesting:: solver = {} backend = {} mode = {} ...".format(solver, backend, mode))
                 t = pysht.get_transformer(solver, mode, backend)
                 t = t(**kwargs, deflection_kwargs=deflection_kwargs)
+                # print(t.constructor.spat_shape, lmax)
                 print("\n----lmax: {}, phi_lmax: {}, dlm_lmax = {}, epsilon: {}----".format(lmax, phi_lmax, hp.Alm.getlmax(toydlm.size), deflection_kwargs['epsilon']))
                 if backend == 'CPU':
                     if solver == 'lenspyx':

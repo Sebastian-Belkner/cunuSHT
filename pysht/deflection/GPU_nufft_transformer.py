@@ -11,6 +11,7 @@ import healpy as hp
 import ctypes
 import line_profiler
 import inspect
+# import pyculib
 
 import cupyx.scipy.fft as cufft
 import scipy.fft
@@ -122,7 +123,7 @@ class deflection:
 
 
 class GPU_cufinufft_transformer:
-    def __init__(self, shttransformer_desc, geominfo, single_prec, epsilon, nthreads, verbosity, planned, deflection_kwargs):
+    def __init__(self, shttransformer_desc, geominfo, single_prec, epsilon, nthreads, verbosity, planned, plannednuFFT=True, deflection_kwargs={}):
         self.backend = 'GPU'
         self.shttransformer_desc = shttransformer_desc
         self.single_prec = single_prec
@@ -130,6 +131,7 @@ class GPU_cufinufft_transformer:
         self.nthreads = nthreads
         self.verbosity = verbosity
         self.planned = planned
+        self.plannednuFFT = plannednuFFT
         
         self.execmode = None
         
@@ -247,6 +249,11 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def C2C(self, map_in, norm='forward', fc_out=None):
+        # return pyculib.fft.fft(map_in)
+        self.timer.reset()
+        cp.fft.fft2(map_in, axes=(0,1), norm='forward') 
+        self.timer.add("C2C init")
+        return cp.fft.fft2(map_in, axes=(0,1), norm='forward')
         return scipy.fft.fft2(map_in, norm='forward')
     
     @debug_decorator
@@ -292,31 +299,48 @@ class GPU_cufinufft_transformer:
         self.doubling(CARmap.reshape(self.nphi_CAR,-1).T.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
         del CARmap
         fc = None
-        # self.timer.reset()
-        # _ = scipy.fft.fft2(CARdmap.reshape(ntheta_dCAR,-1).T, norm='forward')
-        # self.timer.add("C2C init")
-        _C = CARdmap.reshape(ntheta_dCAR,-1).T.astype(np.complex64)
+        _C = cp.ascontiguousarray(CARdmap.reshape(ntheta_dCAR,-1).T.astype(np.complex64))
+
         _fc_out = None # fc.astype(np.complex64)
-        fc = self.C2C(_C, fc_out=_fc_out)
-        del CARdmap
-        # _ = self.nuFFT2d2(fc=cufft.fftshift(fc, axes=(0,1)), x=pointing_phi, y=pointing_theta, epsilon=epsilon, map_out=pointmap)
-        _fc = cufft.fftshift(fc, axes=(0,1)).astype(np.complex64)
-        _x = pointing_phi.astype(np.float32)
-        _y = pointing_theta.astype(np.float32)
         self.timer.reset()
-        _ = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon)
+        _ = cp.fft.fft2(_C, axes=(0,1), norm='forward') 
+        self.timer.add("C2C init")
+        self.timer.reset()
+        fc = cp.fft.fft2(_C, axes=(0,1), norm='forward')
+        self.timer.add("C2C")
+        del CARdmap
+        
+        # _ = self.nuFFT2d2(fc=cufft.fftshift(fc, axes=(0,1)), x=pointing_phi, y=pointing_theta, epsilon=epsilon, map_out=pointmap)
+        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=np.complex64)
+        _x = cp.ascontiguousarray(pointing_phi, dtype=np.float32)
+        _y = cp.ascontiguousarray(pointing_theta, dtype=np.float32)
+        self.timer.reset()
+        pointmap = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon)
         self.timer.add("nuFFT init")
-        pointmap = self.nuFFT2d2(fc=_fc, x=_x, y=_y, epsilon=epsilon, map_out=pointmap)
+        if self.plannednuFFT:
+            from cufinufft import Plan, _compat 
+            plan = Plan(2, _fc.shape[-2:], 1, self.epsilon, 1, np.float32)
+            self.timer.reset()
+            plan.setpts(_x, _y, None)
+            plan.execute(_fc, out=pointmap)
+        else:
+            self.timer.reset()
+            pointmap = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon, out=pointmap)
+        self.timer.add("nuFFT2d2")
         return pointmap
         
     def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
         # TODO use nthreads, spin, verbose
         pointing_theta, pointing_phi = loc[0], loc[1]
-        # _ = self.nuFFT2d1(pointmap, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
+        _y = pointing_phi.astype(np.float32)
+        _x = pointing_theta.astype(np.float32)
+        _d = pointmap.astype(np.complex64)
+        self.timer.reset()
+        _ = cufinufft.nufft2d1(data=_d, x=_x, y=_y, n_modes=(2*self.ntheta_CAR-2,self.nphi_CAR), isign=-1, eps=epsilon)
         self.timer.add("nuFFT init")
-        fc = self.nuFFT2d1(pointmap, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
+        fc = self.nuFFT2d1(_d, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=_x, y=_y, epsilon=epsilon)
         
-        CARdmap = self.iC2C(cufft.fftshift(fc, axes=(1,2)))
+        CARdmap = self.iC2C(cufft.fftshift(fc, axes=(1,2))).astype(np.complex128)
         
         CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
         synthmap = self.adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
@@ -365,8 +389,10 @@ class GPU_cufinufft_transformer:
         self.timer.add('Transfer <-')
         
         if self.execmode == 'timing':
+            _plannedstr = "nuFFTplanned" if self.plannednuFFT else "nuFFTunplanned"
+            fn = os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/GPU_cufinufft_{}_e{}_{}'.format(lmax, self.epsilon, _plannedstr)
             self.timer.close('gclm2lenmap()')
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/GPU_cufinufft_{}_e{}'.format(lmax, self.epsilon))
+            self.timer.dumpjson(fn)
             print(self.timer)
             print("::timing:: stored new timing data for lmax {}".format(lmax))
         if self.execmode == 'debug':
