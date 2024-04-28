@@ -1,53 +1,84 @@
 # pySHT
-general spin-n SHTs on CPU and GPU backend
+general (adjoint) spin-n SHTs.
+
+pySHT provides functions to calculate spherical harmonic transforms for any uniform and non-uniform grid.
+
+It can run on both, CPU and GPU, and can do this for (custom) geometries.
+
+Operators:
+
+ - `synthesis_general()`: takes SHT coefficients and (possibly non-uniform) grid points at which they are to be evaluated and returns the SHT transformed position space data (a map).
+ - `adjoint_synthesis_general()`: this is the adjoint operation, takes a map with (possibly non-uniform grid points) and returns the SHT coefficients for a uniform grid. 
+ - `gclm2lenmap()`: similar to synthesis_general, but automatically performs dlm2pointing, iff no pointing is provided
+ - `lenmap2gclm()`: similar to adjoint_synthesis_general, but again, perfroms dlm2pointing if needed.
+ - `dlm2pointing()`: calculates the non-uniform grid points (pointing) from the coefficients of a deflection field (dlm).
 
 
-## Rusty @ Simons
+## Installation
 
-```
-salloc -p gpu --gpus=1 -C v100 -c 1
-ssh sbelkner@<workergpuX>
-remember workerid!
-module load python gcc cuda
-./start_jupyter (don't miss half the token..)
-connect via VS Code kernel
-```
+Currently in 2 steps:
 
-## profile
-
-to profile your code with python,
-
-To profile this:
- 1. `kernprof -l gclm2lenmap_GPU.py'`
- 2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"`
-
-
-## Ygdrassil
-Quickhelp to activate GPU on jupyter notebook in VS code
-
-
-Activate conda environment, and load modules before starting kernel,
+Enter the `pysht/c` folder, and compile the C and CUDA library, and install the python module via the `pyproject.toml`
 
 ```
-conda activate shtgpu
-source load_modules
+cd pysht/c
+pip install .
 ```
 
-Allocate GPU,
-```
-salloc --gpus 1 --partition=shared-gpu --time=320:00
-```
-
-Run script for starting server,
+Then, go to the root directory, and install `pysht`:
 
 ```
-./start_jupyter.sh
+cd ./../../
+python3 setup.py install
 ```
 
-In VS Code, choose exsiting server with URL.
-Finally, in notebook, choose shtgpu kernel.
+## usage
+
+While somewhat cumbersome, the current interface works as follows.
+
+Set parameters,
+
+```
+kwargs = {
+    'geominfo': ('gl',{'lmax':1023}),
+    'planned': True,
+    'single_prec': False
+}
+```
+
+Construct your transformer,
+```
+import pysht
+t = pysht.get_transformer(solver='cufinufft', backend='GPU')
+t = t(**kwargs)
+```
 
 
-To install shtns, activate gpu node, load compatible modules (CUDAcore needs gcc <=10, i.e: module load GCC/9.3.0)
+### gclm2lenmap()
 
-There appears to be two shtgpu conda environs. One is on login node, the other is on gpu node. Install stuff into the gpu node version, as only there shtns and cufinufft installations succeed.
+The function depends on,
+
+- gclm: the SHT coefficients at the uniform grid points
+- ptg: the (non-uniform) grid points (the pointing) for which the pointmap should be evaluated
+- dlm(_scaled): the deflection field that is used to calculate pointing, iff ptg is not provided. Note, for the GPU backend, this is dlm_scaled and must be `dlm * np.sqrt(1/l(l+1))`.
+- lmax: the pointmap maximum SHT multipole
+- mmax: the dlm_scaled
+- epsilon: the target accuracy
+- nthreads: the numnber of threads to be used (number of available CPUs is a good number)
+- lenmap: the output
+
+
+Choose your parameters, then
+```
+t.gclm2lenmap(gclm=gclm, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, nthreads=nthreads, lenmap=lenmap)
+```
+
+### lenmap2gclm()
+
+This is the adjoint operation of `gclm2lenmap()`, if lenmap is not quadrature weighted. This is the inverse operation of `gclm2lenmap()`, if lenmap is multiplied by the maginification matrix, and if map is quadrature weighted.
+
+Similar to above,
+
+```
+t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, nthreads=10 gclm=gclm)
+```
