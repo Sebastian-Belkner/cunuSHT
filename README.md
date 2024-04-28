@@ -67,15 +67,15 @@ The function depends on,
 - nthreads: the numnber of threads to be used (number of available CPUs is a good number)
 - lenmap: the output
 
-
 Choose your parameters, then
+
 ```
 t.gclm2lenmap(gclm=gclm, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, nthreads=nthreads, lenmap=lenmap)
 ```
 
 ### lenmap2gclm()
 
-This is the adjoint operation of `gclm2lenmap()`, if lenmap is not quadrature weighted. This is the inverse operation of `gclm2lenmap()`, if lenmap is multiplied by the maginification matrix, and if map is quadrature weighted.
+This is the adjoint (inverse) operation of `gclm2lenmap()`, if lenmap is not quadrature weighted (is multiplied by the maginification matrix, and quadrature weighted).
 
 Similar to above,
 
