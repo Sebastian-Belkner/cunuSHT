@@ -28,6 +28,7 @@ phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
 Tsky2 = None
+nthreads = 10
 for epsilon in epsilons:
     for lmax, phi_lmax in zip(lmaxs, phi_lmaxs):
         geominfo = ('gl',{'lmax': lmax})
@@ -44,57 +45,59 @@ for epsilon in epsilons:
         Tsky2 = synsky.unl2len(toyunllm, philm, spin=0)
 
         for runinfo in runinfos:
-            shttransformer_desc = 'shtns' if runinfo[0] == 'GPU' else 'ducc'
-            kwargs = {
-                'geominfo': geominfo,
-                'nthreads': 10,
-                'epsilon': epsilon,
-                'verbosity': 1,
-                'planned': False,
-                'single_prec': False,
-                'shttransformer_desc': shttransformer_desc
-            }
-            
-            deflection_kwargs = {
-                'geominfo': lenjob_geominfo,
-                'nthreads': 10,
-                'epsilon': epsilon,
-                'verbosity': 1,
-                'single_prec': False,
-                'mmax_dlm': phi_lmax,
-                'dlm': toydlm,
-            } 
-            print(runinfo)
             backend = runinfo[0]
             defres.update({backend: {}}) if backend not in defres.keys() else None
             solver = runinfo[1]
             defres[backend].update({solver : None}) if solver not in defres[backend].keys() else None
-            for mode in ['nuFFT']:
-                print("\nTesting:: solver = {} backend = {} mode = {} ...".format(solver, backend, mode))
-                t = pysht.get_transformer(solver, mode, backend)
-                t = t(**kwargs, deflection_kwargs=deflection_kwargs)
-                print("\n----lmax: {}, phi_lmax: {}, dlm_lmax = {}, epsilon: {}----".format(lmax, phi_lmax, hp.Alm.getlmax(toydlm.size), deflection_kwargs['epsilon']))
-                if backend == 'CPU':
-                    if solver == 'lenspyx':
-                        nalm = toyunllm.shape[-1]
-                        gclm = np.array(np.zeros(shape=(1, nalm)), dtype=np.complex128) if not kwargs["single_prec"] else np.array(np.zeros(shape=(nalm)), dtype=np.complex64)
-                        _ = Tsky2.copy()
-                        print(_.shape)
-                        wCPU = t.geom.weight
-                        defres[backend][solver] = t.lenmap2gclm(
-                            np.atleast_2d(_), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, gclm_out=gclm, nthreads=10, execmode='timing', ptg=None)
-                    else:
-                        wCPU = t.geom.weight
-                        gclm = np.array(np.zeros(shape=(1, t.geom.nalm(lmax, lmax))), dtype=np.complex128) if not kwargs["single_prec"] else np.array(np.zeros(shape=(t.geom.nalm(lmax, lmax))), dtype=np.complex64)
-                        _ = Tsky2.copy()
-                        defres[backend][solver] = t.lenmap2gclm(
-                                np.atleast_2d(_), dlm=toydlm, gclm_out=gclm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
-                elif backend == 'GPU':
-                    wGPU = t.cc_transformer.constructor.gauss_wts()
-                    lenmap = np.atleast_2d((Tsky2))#.reshape(t.geom.nph[0],-1).T.flatten()) # this only works for gl geom
-                    lenmap = cp.array(lenmap, dtype=np.complex128) if not kwargs["single_prec"] else cp.array(lenmap.astype(np.complex64))
-                    ll = np.arange(0,deflection_kwargs["mmax_dlm"]+1,1)
-                    dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
-                    dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if not deflection_kwargs["single_prec"] else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
-                    gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) if not kwargs["single_prec"] else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
-                    defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm_out=gclm, nthreads=10, execmode='timing')
+            
+            t = pysht.get_transformer(solver, backend)
+            if backend == 'CPU':
+                if solver == 'lenspyx':
+                    kwargs = {
+                        'geominfo_deflection': lenjob_geominfo,
+                        'dglm': toydlm,
+                        'mmax_dlm': lmax,
+                        'nthreads': nthreads,
+                        'verbosity': 1,
+                        'epsilon': epsilon,
+                        'single_prec': False,
+                    }
+                    t = t(**kwargs)
+                    nalm = toyunllm.shape[-1]
+                    gclm = np.array(np.zeros(shape=(1, nalm)), dtype=np.complex128) if not kwargs["single_prec"] else np.array(np.zeros(shape=(nalm)), dtype=np.complex64)
+                    _ = Tsky2.copy()
+                    print(_.shape)
+                    wCPU = t.geom.weight
+                    defres[backend][solver] = t.lenmap2gclm(
+                        np.atleast_2d(_), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, gclm_out=gclm, nthreads=10, execmode='timing', ptg=None)
+                else:
+                    kwargs = {
+                        'geominfo_deflection': lenjob_geominfo,
+                        'planned': False,
+                    }
+                    t = t(**kwargs)
+                    wCPU = t.geom.weight
+                    gclm = np.array(np.zeros(shape=(1, t.geom.nalm(lmax, lmax))), dtype=np.complex128) if not kwargs["single_prec"] else np.array(np.zeros(shape=(t.geom.nalm(lmax, lmax))), dtype=np.complex64)
+                    _ = Tsky2.copy()
+                    defres[backend][solver] = t.lenmap2gclm(
+                            np.atleast_2d(_), dlm=toydlm, gclm_out=gclm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing')
+            
+            elif backend == 'GPU':
+                kwargs = {
+                    'geominfo_deflection': lenjob_geominfo,
+                    'epsilon': epsilon,
+                    'planned': True,
+                }
+                t = t(**kwargs)
+                single_prec = kwargs["epsilon"] >= 1e-6
+                
+                lenmap = np.atleast_2d((Tsky2))
+                lenmap = cp.array(lenmap, dtype=np.complex128) if not single_prec else cp.array(lenmap.astype(np.complex64))
+                
+                ll = np.arange(0,lmax+1,1)
+                dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
+                dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if not single_prec else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
+                
+                gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) if not single_prec else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
+                
+                defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, nthreads=nthreads, epsilon=epsilon, gclm_out=gclm, execmode='timing')

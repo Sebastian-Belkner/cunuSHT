@@ -220,7 +220,7 @@ class GPU_cufinufft_transformer:
         _C = cp.empty(nuFFTshape, dtype=FFT_dtype)
         self.FFTplan = get_fft_plan(_C, axes=(0, 1), value_type='C2C')
         
-        nuFFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         self.nuFFTplan = Plan(2, nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype)
     
     @debug_decorator
@@ -317,17 +317,21 @@ class GPU_cufinufft_transformer:
         del self.CARdmap
         # fc = self.C2C(_C, norm='forward', fc_out=None)
         
-        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=FFT_dtype)#.reshape(1, *fc.shape)
+        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=nuFFT_dtype)#.reshape(1, *fc.shape)
+        _fc2 = cp.ascontiguousarray(fc, dtype=nuFFT_dtype)
         del fc, _C
         pointing_dtype = cp.float32 if self.single_prec else cp.float64
         _x = cp.ascontiguousarray(pointing_phi, dtype=pointing_dtype)
         _y = cp.ascontiguousarray(pointing_theta, dtype=pointing_dtype)
         del pointing_theta, pointing_phi
         if self.planned:
-            # self.nuFFTplan.setpts(_x[::-1], _y[::-1], None)
-            # pointmap = self.nuFFTplan.execute(_fc[::-1])
-            # self.timer.add('nuFFT init')
+            del self.nuFFTplan
+            nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+            self.nuFFTplan = Plan(2, (self.nphi_dCAR, self.ntheta_dCAR)[-2:], 1, epsilon, 1, nuFFT_dtype)
+            self.timer.add('nuFFT plan')
             self.nuFFTplan.setpts(_x, _y, None)
+            self.timer.add('nuFFT set points')
             pointmap = self.nuFFTplan.execute(_fc)
             self.timer.add('nuFFT')
         # pointmap = self.nuFFT2d2(_fc, _x, _y, epsilon, map_out=pointmap)
