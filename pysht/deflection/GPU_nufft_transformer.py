@@ -175,7 +175,6 @@ class GPU_cufinufft_transformer:
         if self.single_prec:
             assert lenmap.dtype in [cp.float32, cp.complex64], "{} is {}".format(lenmap, lenmap.dtype)
             assert gclm_out.dtype in [cp.float32, cp.complex64], "{} is {}".format(gclm_out, gclm_out.dtype)
-        if self.deflectionlib.single_prec:
             assert dlm.dtype in [cp.complex64], "{} is {}".format(dlm, dlm.dtype)
 
     def _assert_shape(self, lenmap, gclm_out, dlm, ndim, nbatch):
@@ -247,15 +246,15 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def adjoint_synthesis(self, synthmap, lmax, mmax, nthreads, out):
-        out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        out = self.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
         return out
 
     @debug_decorator
     @timing_decorator
     # @shape_decorator
     def C2C(self, map_in, norm='forward', fc_out=None):
-        cupyx.scipy.fft.fft2(map_in, axes=(0, 1), norm=norm, plan=self.FFTplan)
-        self.timer.reset()
+        # cupyx.scipy.fft.fft2(map_in, axes=(0, 1), norm=norm, plan=self.FFTplan)
+        # self.timer.reset()
         return cupyx.scipy.fft.fft2(map_in, axes=(0, 1), norm=norm, plan=self.FFTplan)
         # return cp.fft.fft2(map_in, axes=(0,1), norm=norm)
     
@@ -319,7 +318,6 @@ class GPU_cufinufft_transformer:
         
         nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=nuFFT_dtype)#.reshape(1, *fc.shape)
-        _fc2 = cp.ascontiguousarray(fc, dtype=nuFFT_dtype)
         del fc, _C
         pointing_dtype = cp.float32 if self.single_prec else cp.float64
         _x = cp.ascontiguousarray(pointing_phi, dtype=pointing_dtype)
@@ -418,7 +416,7 @@ class GPU_cufinufft_transformer:
         return result
 
 
-    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, nthreads:int, ptg=None, verbosity=1, execmode='normal'):
+    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, epsilon=None, nthreads:int=None, ptg=None, verbosity=1, execmode='normal'):
         """
             Note:
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
