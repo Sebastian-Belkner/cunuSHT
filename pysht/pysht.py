@@ -61,7 +61,7 @@ def set_transformer(transf):
     assert 0, "implement if needed"
 
 
-def get_transformer(solver, mode, backend):
+def get_transformer(solver, backend, mode='nuFFT'):
     if backend in ['CPU']:
         if mode in ['SHT']:
             return transform(solver, CPU_SHT_Transformer())

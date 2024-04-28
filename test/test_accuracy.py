@@ -55,24 +55,10 @@ class Test(unittest.TestCase):
                     Tsky2 = synsky.unl2len(toyunllm, philm, spin=0)
                     for runinfo in runinfos:
                         kwargs = {
-                            'geominfo': geominfo,
-                            'nthreads': 10,
-                            'epsilon': 1e-10,
-                            'verbosity': 0,
+                            'geominfo': lenjob_geominfo,
                             'planned': False,
                             'single_prec': False,
-                            'shttransformer_desc': runinfo[2]
-                        }
-                        
-                        deflection_kwargs = {
-                            'dlm': toydlm,
-                            'mmax_dlm': phi_lmax,
-                            'epsilon': 1e-10,
-                            'verbosity': 0,  
-                            'single_prec': False,
-                            'nthreads': 10,
-                            'geominfo': lenjob_geominfo,
-                        }    
+                        } 
                         print(runinfo)
                         backend = runinfo[0]
                         defres.update({backend: {}}) if backend not in defres.keys() else None
@@ -81,7 +67,7 @@ class Test(unittest.TestCase):
                         for mode in ['nuFFT']:
                             print("\nTesting:: solver = {} backend = {} mode = {} ...".format(solver, backend, mode))
                             t = pysht.get_transformer(solver, mode, backend)
-                            t = t(**kwargs, deflection_kwargs=deflection_kwargs)
+                            t = t(**kwargs)
                             
                             nrings = len(t.geom.ofs)
                             pixs = t.geom.ofs[nrings//4*2:nrings//4*2+10]

@@ -13,13 +13,8 @@ import pysht.geometry as geometry
 from pysht.helper import shape_decorator
 
 class CPU_SHT_DUCC_transformer():
-    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+    def __init__(self, geominfo):
         self.set_geometry(geominfo)
-        self.verbosity = verbosity
-        self.single_prec = single_prec
-        self.nthreads = nthreads
-        self.theta_contiguous = False
-
 
     def set_geometry(self, geom_desc):
         self.geom = geometry.get_geom(geom_desc)
@@ -74,15 +69,10 @@ class CPU_SHT_DUCC_transformer():
         return self.adjoint_synthesis(m.copy(), 0, lmax, mmax, nthreads, **kwargs).squeeze()
 
 class CPU_SHT_SHTns_transformer():
-    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+    def __init__(self, geominfo):
         self.set_geometry(geominfo)
-        self.verbosity = verbosity
-        self.single_prec = single_prec
-        self.nthreads = nthreads
-
 
     def set_geometry(self, geominfo):
-        self.geom = geometry.get_geom(geominfo)
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
             self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
@@ -90,8 +80,9 @@ class CPU_SHT_SHTns_transformer():
             geominfo[1].pop('mmax')
         else:
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
-            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
+            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS)#, nlat=len(self.geom.nph), nphi=int(self.geom.nph[0]))
         self.theta_contiguous = True
+        self.geom = geometry.get_geom(geominfo)
            
         
     def set_constructor(self, lmax, mmax):

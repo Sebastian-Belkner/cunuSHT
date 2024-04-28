@@ -1,5 +1,5 @@
 #!/bin/bash
-for i in {1..19}
+for i in {1..21}
 do
     value=$((256*$i-1))
     python3 benchmark_gclm2lenmap.py "$i"

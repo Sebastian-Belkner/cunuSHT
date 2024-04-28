@@ -4,19 +4,16 @@ import os, sys
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.remapping.utils_angles import d2ang
 
-import functools
 import cupy as cp
 import time
 import healpy as hp
-import ctypes
 import line_profiler
-import inspect
-# import pyculib
-
+from cupyx.scipy.fft import get_fft_plan
+import cupyx
 import cupyx.scipy.fft as cufft
-import scipy.fft
-scipy.fft.set_global_backend(cufft)
 
+
+from cufinufft import Plan, _compat 
 import ducc0
 import cufinufft
 
@@ -30,61 +27,34 @@ from pysht.helper import shape_decorator, debug_decorator, timing_decorator
 from pysht.sht.GPU_sht_transformer import GPU_SHT_pySHT_transformer, GPU_SHTns_transformer
 from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 
-ctype = {np.dtype(np.float32): np.complex64,
-         np.dtype(np.float64): np.complex128,
-         np.dtype(np.longfloat): np.longcomplex,
-         np.float32: np.complex64,
-         np.float64: np.complex128,
-         np.longfloat: np.longcomplex}
+ctype = {True: np.complex64, False: np.complex128}
+rtype = {True: np.float32, False: np.float64}
 
 class deflection:
-    def __init__(self, shttransformer_desc, dlm, mmax_dlm:int, geominfo, dclm:np.ndarray=None, epsilon=1e-10, verbosity=0, nthreads=10, single_prec=False, timer=None):
-        if timer is not None:
-            self.timer = timer
-            
-        sht_kwargs = {
-            'geominfo': geominfo,
-            'verbosity': verbosity,
-            'single_prec': single_prec,
-            'nthreads': nthreads
-        } 
-        if shttransformer_desc == 'shtns':
-            self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
-        elif shttransformer_desc == 'ducc':
-            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
-        elif shttransformer_desc == 'pysht':
-            assert 0, "implement if needed"
-            self.BaseClass = type('GPU_SHT_pySHT_transformer', (GPU_SHT_pySHT_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
+    def __init__(self, geominfo, shttransformer_desc='shtns', timer_instance=None):
+        if timer_instance is None:
+            self.timer = timer(1, prefix=self.backend)
         else:
-            raise ValueError('shttransformer_desc must be either "ducc" or "shtns" or "pysht"')
-        
-        self.single_prec = single_prec
-        self.verbosity = verbosity
-        self.nthreads = nthreads
+            self.timer = timer_instance
         self.cacher = cacher.cacher_mem()
-        self.epsilon = epsilon
-        
-        dlm = np.atleast_2d(dlm)        
-        self.lmax_dlm = Alm.getlmax(dlm[0].size, mmax_dlm)
-        self.mmax_dlm = mmax_dlm
         
         self.geominfo = geominfo
         self.geom = geometry.get_geom(geominfo)
+            
+        if shttransformer_desc == 'shtns':
+            self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
+        elif shttransformer_desc == 'ducc':
+            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
+        elif shttransformer_desc == 'pysht':
+            assert 0, "implement if needed"
+            self.BaseClass = type('GPU_SHT_pySHT_transformer', (GPU_SHT_pySHT_transformer,), {})
+        else:
+            raise ValueError('shttransformer_desc must be either "ducc" or "shtns" or "pysht"')
+        self.instance = self.BaseClass(geominfo=geominfo)
         
-        s2_d = np.sum(alm2cl(dlm[0], dlm[0], self.lmax_dlm, mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
-        if dlm.shape[0]>1:
-            s2_d += np.sum(alm2cl(dlm[1], dlm[1], self.lmax_dlm, mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
-            s2_d /= np.sqrt(2.)
-        sig_d = np.sqrt(s2_d / self.geom.fsky())
-        sig_d_amin = sig_d / np.pi * 180 * 60
-        if sig_d >= 0.01:
-            print('deflection std is %.2e amin: this is really too high for something sensible'%sig_d_amin)
-        elif self.verbosity:
-            print('deflection std is %.2e amin' % sig_d_amin)
-    
+        assert np.multiply(*self.constructor.spat_shape) == self.geom.npix(), "{} => {} =/= {}, ({},{}) <= {}".format(self.constructor.spat_shape, np.multiply(*self.constructor.spat_shape), self.geom.npix(), self.geom.nph[0], len(self.geom.ofs), geominfo) # just a check to see if shtns geometry behaves as pysht geometry
+
+
     def __getattr__(self, name):
         return getattr(self.instance, name)
 
@@ -92,12 +62,27 @@ class deflection:
     # @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def dlm2pointing(self, dlm_scaled, pointing_theta, pointing_phi):
+    def dlm2pointing(self, dlm_scaled, mmax_dlm, nthreads, verbosity, pointing_theta, pointing_phi):
+        if False:
+            # FIXME this is only true for dlm, not dlm_scaled
+            dlm_scaled = np.atleast_2d(dlm_scaled)
+            self.lmax_dlm = Alm.getlmax(dlm_scaled[0].size, mmax_dlm)
+            self.mmax_dlm = mmax_dlm
+            s2_d = np.sum(alm2cl(dlm_scaled[0], dlm_scaled[0], self.lmax_dlm, self.mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
+            if dlm_scaled.shape[0]>1:
+                s2_d += np.sum(alm2cl(dlm_scaled[1], dlm_scaled[1], self.lmax_dlm, self.mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
+                s2_d /= np.sqrt(2.)
+            sig_d = np.sqrt(s2_d / self.geom.fsky())
+            sig_d_amin = sig_d / np.pi * 180 * 60
+            if sig_d >= 0.01:
+                print('deflection std is %.2e amin: this is really too high for something sensible'%sig_d_amin)
+            elif verbosity:
+                print('deflection std is %.2e amin' % sig_d_amin)
         
         # @debug_decorator
         @timing_decorator
         def _spin__1___synth(self, dlm_scaled, out_theta, out_phi):
-            self.synthesis_der1_cupy(dlm_scaled, out_theta, out_phi, nthreads=self.nthreads)
+            self.synthesis_der1_cupy(dlm_scaled, out_theta, out_phi, nthreads=nthreads)
             return cp.array([out_theta, out_phi])
           
         # @debug_decorator
@@ -123,52 +108,60 @@ class deflection:
 
 
 class GPU_cufinufft_transformer:
-    def __init__(self, shttransformer_desc, geominfo, single_prec, epsilon, nthreads, verbosity, planned, plannednuFFT=True, deflection_kwargs={}):
+    def __init__(self, geominfo_deflection, shttransformer_desc='shtns', planned=True, epsilon=None):
+        """GPU transformer using cufiNUFFT
+
+        Args:
+            geominfo_deflection (_type_): If pointing provided, geominfo_deflection is only needed to have consistent lmax and mmax parameters for CAR geometry.
+            shttransformer_desc (str, optional): SHT solver choice. Defaults to 'shtns'.
+            planned (bool, optional): Plan FFT and nuFFT before execution, nuFFT-planning only possible if.  Defaults to True, in which case epsilon and 
+
+        Raises:
+            ValueError: _description_
+        """
+        if planned:
+            assert epsilon is not None, "epsilon must be provided if planned is True"
+            # assert dtype_nuFFT is not None, "dtype_nuFFT must be provided if planned is True"
         self.backend = 'GPU'
         self.shttransformer_desc = shttransformer_desc
-        self.single_prec = single_prec
-        self.epsilon = epsilon
-        self.nthreads = nthreads
-        self.verbosity = verbosity
         self.planned = planned
-        self.plannednuFFT = plannednuFFT
-        
         self.execmode = None
+        self.ret = {} # This is for execmode='debug'
         
-        sht_kwargs = {
-            'geominfo': geominfo,
-            'verbosity': verbosity,
-            'single_prec': single_prec,
-            'nthreads': nthreads
-        } 
+        # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
+        self.ntheta_CAR = (ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4
+        self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
+        self.nphi_CAR = 2 * self.nphihalf_CAR
+        self.geominfo_CAR = ('cc',{'lmax': geominfo_deflection[1]['lmax'], 'mmax':geominfo_deflection[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
         if shttransformer_desc == 'shtns':
             self.BaseClass = type('GPU_SHTns_transformer', (GPU_SHTns_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
         elif shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
         elif shttransformer_desc == 'pysht':
             assert 0, "implement if needed"
             self.BaseClass = type('GPU_SHT_pySHT_transformer', (GPU_SHT_pySHT_transformer,), {})
-            self.instance = self.BaseClass(**sht_kwargs)
         else:
             raise ValueError('shttransformer_desc must be either "ducc" or "shtns" or "pysht"')
-            
-        self.geominfo = geominfo
-        self.set_geometry(geominfo)
-        
-        self.timer = timer(1, prefix=self.backend)
-        self.deflectionlib = deflection(shttransformer_desc, **deflection_kwargs, timer=self.timer)
-        
-        # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
-        self.ntheta_CAR = (ducc0.fft.good_size(geominfo[1]['lmax'] + 2) + 3) // 4 * 4
-        self.nphihalf_CAR = ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
-        self.nphi_CAR = 2 * self.nphihalf_CAR
-        self.geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
-        self.cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(self.geominfo_CAR)
-        w = self.cc_transformer.constructor.gauss_wts() 
+        self.instance = self.BaseClass(geominfo=self.geominfo_CAR)
+        w = self.constructor.gauss_wts()
         w = np.hstack((w, np.flip(w)))
         self.iw = cp.array(1/w)
+        
+        self.ntheta_dCAR, self.nphi_dCAR = int(2*self.ntheta_CAR-2), int(self.nphi_CAR)
+        self.CARmap = cp.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
+        self.CARdmap = cp.empty((self.ntheta_dCAR*self.nphi_dCAR), dtype=np.double)
+        
+        self.timer = timer(1, prefix=self.backend)
+        self.deflectionlib = deflection(geominfo=geominfo_deflection, shttransformer_desc=shttransformer_desc, timer_instance=self.timer)
+ 
+        if self.planned:
+            self.epsilon = epsilon
+            self.single_prec = True if epsilon > 1e-6 else False
+            _nuFFTshape = (self.nphi_dCAR, self.ntheta_dCAR)
+            self.plan(_nuFFTshape, epsilon=self.epsilon)
+                     
+    def __getattr__(self, name):
+        return getattr(self.instance, name)
 
     def _assert_type(self, lenmap, gclm_out, dlm):
         assert isinstance(lenmap, cp.ndarray), "only accepting cupy arrays here, {} is {}".format("lenmap", type(lenmap))
@@ -219,23 +212,35 @@ class GPU_cufinufft_transformer:
             assert gclm_out.dtype in [cp.complex64], "gclm_out must be single precision"
             assert self.epsilon>1e-6, "epsilon must be > 1e-6 for single precision"
 
-    def __getattr__(self, name):
-        return getattr(self.instance, name)
+    @timing_decorator
+    def plan(self, nuFFTshape, epsilon):
+        "nuFFT dtype real"
+        
+        FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        _C = cp.empty(nuFFTshape, dtype=FFT_dtype)
+        self.FFTplan = get_fft_plan(_C, axes=(0, 1), value_type='C2C')
+        
+        nuFFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        self.nuFFTplan = Plan(2, nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype)
     
     @debug_decorator
-    @timing_decorator
+    # @timing_decorator
     # @shape_decorator
-    def dlm2pointing(self, dlm_scaled):
-        pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
-        pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
-        self.deflectionlib.dlm2pointing(dlm_scaled, pointing_theta, pointing_phi)
+    def dlm2pointing(self, dlm_scaled, mmax_dlm, verbosity, nthreads):
+        # TODO let's keep this double precision for now, and check later
+        # pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
+        # pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
+        pointing_theta = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
+        pointing_phi = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
+        
+        self.deflectionlib.dlm2pointing(dlm_scaled, mmax_dlm=mmax_dlm, nthreads=nthreads, verbosity=verbosity, pointing_theta=pointing_theta, pointing_phi=pointing_phi)
         return cp.array([pointing_theta, pointing_phi])       
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def synthesis(self, alm, lmax, mmax, nthreads, out):
-        self.cc_transformer.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+    def synthesis(self, alm, out, lmax, mmax, nthreads):
+        self.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
         return out
     
     @debug_decorator
@@ -245,30 +250,35 @@ class GPU_cufinufft_transformer:
         out = self.cc_transformer.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
         return out
 
-    # @debug_decorator
+    @debug_decorator
     @timing_decorator
     # @shape_decorator
     def C2C(self, map_in, norm='forward', fc_out=None):
-        # return pyculib.fft.fft(map_in)
+        cupyx.scipy.fft.fft2(map_in, axes=(0, 1), norm=norm, plan=self.FFTplan)
         self.timer.reset()
-        cp.fft.fft2(map_in, axes=(0,1), norm='forward') 
-        self.timer.add("C2C init")
-        return cp.fft.fft2(map_in, axes=(0,1), norm='forward')
-        return scipy.fft.fft2(map_in, norm='forward')
+        return cupyx.scipy.fft.fft2(map_in, axes=(0, 1), norm=norm, plan=self.FFTplan)
+        # return cp.fft.fft2(map_in, axes=(0,1), norm=norm)
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
     def iC2C(self, fc, norm='backward', map_out=None):
-        return scipy.fft.ifft2(fc[0], norm=norm)
+        return cp.fft.fft2(fc[0], axes=(0,1), norm=norm)
     
-    # @debug_decorator
+    @debug_decorator
     @timing_decorator
     # @shape_decorator
     def nuFFT2d2(self, fc, x, y, epsilon, map_out=None):
-        return cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon)
+        if self.planned:
+            self.nuFFTplan.setpts(x, y, None)
+            self.nuFFTplan.execute(fc, out=map_out)
+            self.timer.reset()
+            self.nuFFTplan.execute(fc, out=map_out)
+        else:
+            map_out = cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon, out=map_out)
+        return map_out
     
-    # @debug_decorator
+    @debug_decorator
     @timing_decorator
     # @shape_decorator
     def nuFFT2d1(self, pointmap, nmodes, x, y, epsilon, fc_out=None): #.reshape(self.geom.nph[0],-1).T.flatten()
@@ -290,43 +300,37 @@ class GPU_cufinufft_transformer:
 
     def synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
         pointing_theta, pointing_phi = loc[0], loc[1]
-        ntheta_dCAR, nphi_dCAR = 2*self.ntheta_CAR-2, self.nphi_CAR
-        CARmap = cp.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
-        CARdmap = cp.zeros((2*self.cc_transformer.constructor.nlat-2)*self.cc_transformer.constructor.nphi, dtype=np.double)
-        self.timer.add('Transfers ->')
-        self.synthesis(alm, lmax, mmax, nthreads, CARmap)
+        self.synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)
         del alm
-        self.doubling(CARmap.reshape(self.nphi_CAR,-1).T.flatten(), int(ntheta_dCAR), int(nphi_dCAR), CARdmap)
-        del CARmap
-        fc = None
-        _C = cp.ascontiguousarray(CARdmap.reshape(ntheta_dCAR,-1).T.astype(np.complex64))
-
-        _fc_out = None # fc.astype(np.complex64)
-        self.timer.reset()
-        _ = cp.fft.fft2(_C, axes=(0,1), norm='forward') 
-        self.timer.add("C2C init")
-        self.timer.reset()
-        fc = cp.fft.fft2(_C, axes=(0,1), norm='forward')
-        self.timer.add("C2C")
-        del CARdmap
+        self.doubling(self.CARmap.reshape(self.nphi_CAR,-1).T.flatten(), self.ntheta_dCAR, self.nphi_dCAR, self.CARdmap)
+        del self.CARmap
         
-        # _ = self.nuFFT2d2(fc=cufft.fftshift(fc, axes=(0,1)), x=pointing_phi, y=pointing_theta, epsilon=epsilon, map_out=pointmap)
-        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=np.complex64)
-        _x = cp.ascontiguousarray(pointing_phi, dtype=np.float32)
-        _y = cp.ascontiguousarray(pointing_theta, dtype=np.float32)
+        FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        _C = cp.ascontiguousarray(self.CARdmap.reshape(self.ntheta_dCAR,-1).T.astype(FFT_dtype))
+        
+        fc = cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
+        # self.timer.add('C2C init')
+        _C = cp.ascontiguousarray(self.CARdmap[::-1].reshape(self.ntheta_dCAR,-1).T.astype(FFT_dtype))
         self.timer.reset()
-        pointmap = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon)
-        self.timer.add("nuFFT init")
-        if self.plannednuFFT:
-            from cufinufft import Plan, _compat 
-            plan = Plan(2, _fc.shape[-2:], 1, self.epsilon, 1, np.float32)
-            self.timer.reset()
-            plan.setpts(_x, _y, None)
-            plan.execute(_fc, out=pointmap)
-        else:
-            self.timer.reset()
-            pointmap = cufinufft.nufft2d2(data=_fc, x=_x, y=_y, isign=1, eps=epsilon, out=pointmap)
-        self.timer.add("nuFFT2d2")
+        fc = cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
+        self.timer.add('C2C')
+        del self.CARdmap
+        # fc = self.C2C(_C, norm='forward', fc_out=None)
+        
+        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=FFT_dtype)#.reshape(1, *fc.shape)
+        del fc, _C
+        pointing_dtype = cp.float32 if self.single_prec else cp.float64
+        _x = cp.ascontiguousarray(pointing_phi, dtype=pointing_dtype)
+        _y = cp.ascontiguousarray(pointing_theta, dtype=pointing_dtype)
+        del pointing_theta, pointing_phi
+        if self.planned:
+            # self.nuFFTplan.setpts(_x[::-1], _y[::-1], None)
+            # pointmap = self.nuFFTplan.execute(_fc[::-1])
+            # self.timer.add('nuFFT init')
+            self.nuFFTplan.setpts(_x, _y, None)
+            pointmap = self.nuFFTplan.execute(_fc)
+            self.timer.add('nuFFT')
+        # pointmap = self.nuFFT2d2(_fc, _x, _y, epsilon, map_out=pointmap)
         return pointmap
         
     def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
@@ -351,10 +355,10 @@ class GPU_cufinufft_transformer:
         alm = self.adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, nthreads=nthreads, out=alm)
         
         alm = alm[0].get()
-        self.timer.add('Transfer <-')
+        # self.timer.add('Transfer <-')
         return alm
     
-    def gclm2lenmap(self, gclm, dlm_scaled, lmax, mmax, ptg=None, nthreads=None, polrot=True, lenmap=None, execmode='normal'):
+    def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbosity=1, execmode='normal'):
         """
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
         No h2d needed between them.
@@ -362,7 +366,14 @@ class GPU_cufinufft_transformer:
         gclm and dlm are assumed to be on host, will be transfered in _setup().
         Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call.
         """
-        self.ret = {}
+        if self.planned:
+            assert epsilon == self.epsilon if epsilon is not None else True==True, "epsilon must be the same as in the plan"
+            epsilon = self.epsilon
+        else:
+            assert epsilon is not None, "epsilon must be provided if not planned"
+            
+        self.single_prec = True if epsilon > 1e-6 else False
+        
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap()')
         
@@ -377,19 +388,20 @@ class GPU_cufinufft_transformer:
         setup(self, nthreads)
         
         if ptg is None:
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled)
+            assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
         else:
             pointing_theta, pointing_phi = ptg.T
         pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
         
-        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbosity=self.verbosity)
+        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbosity=verbosity)
         
         result = lenmap[0].get()
-        self.timer.add('Transfer <-')
+        # self.timer.add('Transfer <-')
         
         if self.execmode == 'timing':
-            _plannedstr = "nuFFTplanned" if self.plannednuFFT else "nuFFTunplanned"
+            _plannedstr = "planned" if self.planned else "unplanned"
             fn = os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/GPU_cufinufft_{}_e{}_{}'.format(lmax, self.epsilon, _plannedstr)
             self.timer.close('gclm2lenmap()')
             self.timer.dumpjson(fn)
@@ -402,7 +414,7 @@ class GPU_cufinufft_transformer:
         return result
 
 
-    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, nthreads:int, ptg=None, execmode='normal'):
+    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, nthreads:int, ptg=None, verbosity=1, execmode='normal'):
         """
             Note:
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
@@ -426,14 +438,14 @@ class GPU_cufinufft_transformer:
         setup(self)
         
         if ptg is None:
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled)
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
         else:
             pointing_theta, pointing_phi = ptg.T
         pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True)
         
         ptg = cp.array([pointing_theta, pointing_phi])
-        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, self.epsilon, nthreads, gclm_out, self.verbosity)
+        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, self.epsilon, nthreads, gclm_out, verbosity)
         
         if self.execmode == 'timing':
             self.timer.close('lenmap2gclm()')

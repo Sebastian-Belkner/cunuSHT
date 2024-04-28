@@ -2,17 +2,14 @@ import os
 import numpy as np
 
 import shtns
-os.environ['SHTNS_VERBOSE']="2" #This is to make nlat ~ lmax to work
+os.environ['SHTNS_VERBOSE']="2" #This is to make nlat ~ lmax work
 import pysht.geometry as geometry
 from pysht.helper import shape_decorator
 
 
 class GPU_SHTns_transformer():
-    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+    def __init__(self, geominfo):
         self.set_geometry(geominfo)
-        self.verbosity = verbosity
-        self.single_prec = single_prec
-        self.nthreads = nthreads
 
     def set_geometry(self, geominfo):
         if geominfo[0] == 'cc':
@@ -25,10 +22,14 @@ class GPU_SHTns_transformer():
                 nphi=int(geominfo[1]['nphi'])) 
             geominfo[1].pop('lmax')
             geominfo[1].pop('mmax')   
+            self.geom = geometry.get_geom(geominfo)
         else:
+            self.geom = geometry.get_geom(geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
-            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)#, nlat=geominfo[1]['ntheta'], nphi=geominfo[1]['nphi'])
-        self.geom = geometry.get_geom(geominfo)
+            # setting nlat and nphi fixes the mismatch between pysht and SHTns geometry, as SHTns nphi sometimes differs from pysht which causes memory allocation error in pointing
+            # because pointing_theta and pointing_phi are allocated based on pysht geometry. 
+            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(len(self.geom.ofs)), nphi=int(self.geom.nph[0]))
+        
         self.theta_contiguous = True
         
     def set_constructor(self, lmax, mmax):
@@ -122,11 +123,8 @@ class GPU_SHT_pySHT_transformer():
     GPU_SHT_pySHT_transformer class for performing spherical harmonic transformations using pySHT library.
     This will be the self-implemented spin-n SHT transforms. 
     """
-    def __init__(self, geominfo, verbosity=0, single_prec=False, nthreads=10):
+    def __init__(self, geominfo, nthreads=10):
         self.set_geometry(geominfo)
-        self.verbosity = verbosity
-        self.single_prec = single_prec
-        self.nthreads = nthreads
 
     def set_geometry(self, geominfo):
         pass

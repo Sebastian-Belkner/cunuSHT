@@ -57,48 +57,26 @@ def ducc_sht_mode(gclm, spin):
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
 
 class deflection:
-    def __init__(self, shttransformer_desc, dlm, mmax_dlm:int, geominfo, dclm:np.ndarray=None, epsilon=1e-5, verbosity=0, nthreads=10, single_prec=True, timer_instance=None):
-        self.backend = 'CPU'
-        self.shttransformer_desc = shttransformer_desc
-        if shttransformer_desc == 'ducc':
-            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        elif shttransformer_desc == 'shtns':
-            self.BaseClass = type('CPU_SHT_SHTns_transformer()', (CPU_SHT_SHTns_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        else:
-            raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
-        
+    def __init__(self, geominfo, shttransformer_desc='ducc', timer_instance=None):
         if timer_instance is None:
             self.timer = timer(1, prefix=self.backend)
         else:
             self.timer = timer_instance
-        self.single_prec = single_prec
-        self.verbosity = verbosity
-        self.planned = False
         self.cacher = cacher.cacher_mem()
-        self.epsilon = epsilon
-        self.nthreads = nthreads
         
-        dlm = np.atleast_2d(dlm)
-        self.dlm = dlm
-        
-        self.lmax_dlm = Alm.getlmax(dlm[0].size, mmax_dlm)
-        self.mmax_dlm = mmax_dlm
-        
+        self.geominfo = geominfo
         self.geom = geometry.get_geom(geominfo)
         
-        s2_d = np.sum(alm2cl(dlm[0], dlm[0], self.lmax_dlm, mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
-        if dlm.shape[0]>1:
-            s2_d += np.sum(alm2cl(dlm[1], dlm[1], self.lmax_dlm, mmax_dlm, self.lmax_dlm) * (2 * np.arange(self.lmax_dlm + 1) + 1)) / (4 * np.pi)
-            s2_d /= np.sqrt(2.)
-        sig_d = np.sqrt(s2_d / self.geom.fsky())
-        sig_d_amin = sig_d / np.pi * 180 * 60
-        if sig_d >= 0.01:
-            print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
-        elif self.verbosity:
-            print('deflection std is %.2e amin' % sig_d_amin)
-            
+        self.shttransformer_desc = shttransformer_desc
+        if shttransformer_desc == 'shtns':
+            self.BaseClass = type('GPU_SHTns_transformer', (CPU_SHT_SHTns_transformer,), {})
+        elif shttransformer_desc == 'ducc':
+            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
+        else:
+            raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
+        self.instance = self.BaseClass(geominfo=geominfo)
+
+
     def __getattr__(self, name):
         return getattr(self.instance, name)           
         
@@ -106,7 +84,7 @@ class deflection:
         buff = np.array([_.reshape(self.lmax_dlm+1,-1).T.flatten() for _ in m])
         return buff
 
-    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, dclm=None):
+    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, nthreads, dclm=None):
         '''
         This depends on the backend. If SHTns, we can use the synthesis_der1 method. If not, we use a spin-1 SHT
         # FIXME this is a bit of a mess, this function should not distinguish between different SHT backends.
@@ -115,22 +93,22 @@ class deflection:
         ll = np.arange(0,lmax_dlm+1,1)
         if self.shttransformer_desc == 'shtns':
             if dclm is None:
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)  
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=nthreads)  
             else:
                 assert 0, "implement if needed, not sure if this is possible with SHTns"
                 dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
                 dgclm[0] = dlm
                 dgclm[1] = dclm
-                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=self.nthreads)
+                synth_spin1_map = self.synthesis_der1(hp.almxfl(dlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1))))), nthreads=nthreads)
             return self.flip_tpg_2d(synth_spin1_map)
         elif self.shttransformer_desc == 'ducc':
             if dclm is None:
-                d1 = self.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads, mode='GRAD_ONLY')
+                d1 = self.synthesis(dlm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=nthreads, mode='GRAD_ONLY')
             else:
                 dgclm = np.empty((2, dlm.size), dtype=dlm.dtype)
                 dgclm[0] = dlm
                 dgclm[1] = dclm
-                d1 = self.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=self.nthreads)
+                d1 = self.synthesis(dgclm, spin=1, lmax=lmax_dlm, mmax=mmax_dlm, nthreads=nthreads)
             return d1
         elif self.shttransformer_desc == 'pysht':
             assert 0, "implement if needed"
@@ -138,7 +116,7 @@ class deflection:
             assert 0, "Not sure what to do with {}".format(self.shttransformer_desc)
 
     # @profile
-    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, fortran=True, calc_rotation=True):
+    def _build_angles(self, dlm, lmax_dlm, mmax_dlm, nthreads, fortran=True, calc_rotation=True):
         """Builds deflected positions and angles
 
             Returns (npix, 3) array with new tht, phi and -gamma
@@ -147,13 +125,13 @@ class deflection:
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]):
 
-            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm)
+            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, nthreads)
             # self.timer.add('spin-1 maps')
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
-                                                        calc_rotation=calc_rotation, nthreads=self.nthreads)
+                                                        calc_rotation=calc_rotation, nthreads=nthreads)
                 if calc_rotation:
                     self.cacher.cache(fns[0], tht_phip_gamma[:, 0:2])
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
@@ -188,47 +166,61 @@ class deflection:
             return
 
 
-    def _get_ptg(self, dlm, mmax):
-        self._build_angles(dlm, mmax, mmax)
+    def _get_ptg(self, dlm, mmax, nthreads):
+        self._build_angles(dlm, mmax, mmax, nthreads)
         return self.cacher.load('ptg')
     
     @timing_decorator
     # @debug_decorator
-    def dlm2pointing(self, dlm):
-        pointing_theta, pointing_phi =  self._get_ptg(dlm, self.mmax_dlm).T
+    def dlm2pointing(self, dlm, mmax_dlm, single_prec, nthreads):
+        self.single_prec = single_prec
+        pointing_theta, pointing_phi =  self._get_ptg(dlm, mmax_dlm, nthreads).T
         return tuple([pointing_theta, pointing_phi])
 
 
 class CPU_DUCCnufft_transformer:
-    def __init__(self, shttransformer_desc, geominfo, single_prec, epsilon, nthreads, verbosity, planned, deflection_kwargs):
-        self.backend = 'CPU'
+    def __init__(self, geominfo_deflection, shttransformer_desc='ducc', planned=True, epsilon=None):
+        """This is not the fastest way of performing synthesis_general, but serves as a compoarison to GPU code
+
+        Args:
+            geominfo_deflection (_type_): _description_
+            shttransformer_desc (str, optional): _description_. Defaults to 'shtns'.
+            planned (bool, optional): _description_. Defaults to True.
+            epsilon (_type_, optional): _description_. Defaults to None.
+
+        Raises:
+            ValueError: _description_
+        """
+        if planned:
+            assert False, "planned mode not supported"
+        self.backend = 'GPU'
         self.shttransformer_desc = shttransformer_desc
-        self.single_prec = single_prec
-        self.epsilon = epsilon
-        self.nthreads = nthreads
-        self.verbosity = verbosity
         self.planned = planned
-        
         self.execmode = None
+        self.ret = {} # This is for execmode='debug'
         
-        if shttransformer_desc == 'ducc':
-            self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        elif shttransformer_desc == 'shtns':
-            self.BaseClass = type('CPU_SHT_SHTns_transformer()', (CPU_SHT_SHTns_transformer,), {})
-            self.instance = self.BaseClass(geominfo)
-        else:
-            raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
-        
-        self.geominfo = geominfo
-        self.set_geometry(self.geominfo)
-        
-        self.ntheta_CAR = (ducc0.fft.good_size(geominfo[1]['lmax'] + 2) + 3) // 4 * 4
-        self.nphihalf_CAR = ducc0.fft.good_size(geominfo[1]['lmax'] + 1)
+        # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
+        self.ntheta_CAR = (ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4
+        self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
+        
+        if False:
+            # The following in principle sets the SHT transformer and geometry for it, but it is not used as we do all transforms via ducc.sht.experimental
+            self.geominfo_CAR = ('cc',{'lmax': geominfo_deflection[1]['lmax'], 'mmax':geominfo_deflection[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
+            if shttransformer_desc == 'shtns':
+                self.BaseClass = type('GPU_SHTns_transformer', (CPU_SHT_SHTns_transformer,), {})
+            elif shttransformer_desc == 'ducc':
+                self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
+            else:
+                raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
+            self.instance = self.BaseClass(geominfo=self.geominfo_CAR)
             
+        self.ntheta_dCAR, self.nphi_dCAR = int(2*self.ntheta_CAR-2), int(self.nphi_CAR)
+        self.CARmap = np.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
+        self.CARdmap = np.empty((self.ntheta_dCAR*self.nphi_dCAR), dtype=np.double)
+        
         self.timer = timer(1, prefix=self.backend)
-        self.deflectionlib = deflection(shttransformer_desc, **deflection_kwargs, timer_instance=self.timer)
+        self.deflectionlib = deflection(geominfo=geominfo_deflection, shttransformer_desc=shttransformer_desc, timer_instance=self.timer)
 
 
     def _ensure_dtype_nuFFT(self, item):
@@ -417,17 +409,31 @@ class CPU_DUCCnufft_transformer:
         
         return alm
 
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, nthreads, polrot=True, ptg=None, lenmap=None, execmode=0):
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, epsilon, nthreads, polrot=True, ptg=None, lenmap=None, verbosity=1, execmode=0):
         """CPU algorithm for spin-n remapping using duccnufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
                 mmax: mmax parameter of alm array layout, if different from lmax
                 spin: spin (>=0) of the transform
                 backwards: forward or backward (adjoint) operation
-        """ 
+        """
+        self.single_prec = True if epsilon>1e-6 else False
+        dlm = np.atleast_2d(dlm)
+        s2_d = np.sum(alm2cl(dlm[0], dlm[0], lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
+        if dlm.shape[0]>1:
+            s2_d += np.sum(alm2cl(dlm[1], dlm[1], lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
+            s2_d /= np.sqrt(2.)
+        sig_d = np.sqrt(s2_d / self.deflectionlib.geom.fsky())
+        sig_d_amin = sig_d / np.pi * 180 * 60
+        if sig_d >= 0.01:
+            print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
+        elif verbosity:
+            print('deflection std is %.2e amin' % sig_d_amin)
+        if dlm.shape[0]==1:
+            # FIXME this is to align shape of dlm for the next steps
+            dlm = dlm[0]
         
         self.timer.start('gclm2lenmap()')
-        self.ret = {}
             
         @timing_decorator
         def setup(self, nthreads):
@@ -445,7 +451,7 @@ class CPU_DUCCnufft_transformer:
             self._assert_precision(lenmap, gclm)
    
         if ptg is None:
-            pointing_theta, pointing_phi = self.deflectionlib.dlm2pointing(dlm)
+            pointing_theta, pointing_phi = self.deflectionlib.dlm2pointing(dlm, mmax_dlm=lmax, single_prec=self.single_prec, nthreads=nthreads)
         else:
             pointing_theta, pointing_phi = ptg[:,0], ptg[:,1]
         if self.execmode == 'debug':
@@ -453,13 +459,13 @@ class CPU_DUCCnufft_transformer:
         pointing_theta = self._ensure_dtype(pointing_theta)
         pointing_phi = self._ensure_dtype(pointing_phi)
         
-        lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=self.verbosity)
+        lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=verbosity)
         lenmap = self.rotate(lenmap, polrot, spin, nthreads)
         
         if self.execmode == 'timing':
             self.timer.close('gclm2lenmap()')
             print(self.timer)
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_duccnufft_{}_e{}'.format(lmax, self.epsilon))
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_duccnufft_{}_e{}'.format(lmax, epsilon))
         if self.execmode == 'debug':
             return self.ret
         else:
@@ -467,7 +473,6 @@ class CPU_DUCCnufft_transformer:
 
 
     def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, ptg=None, execmode='normal'):
-        self.ret = {}
         
         self.timer.start('lenmap2gclm()')
         
@@ -489,7 +494,7 @@ class CPU_DUCCnufft_transformer:
         setup(self, nthreads)
         
         if ptg is None:
-            pointing_theta, pointing_phi = self.deflectionlib.dlm2pointing(dlm)
+            pointing_theta, pointing_phi = self.deflectionlib.dlm2pointing(dlm, mmax_dlm=lmax, single_prec=self.single_prec, nthreads=nthreads)
         else:
             pointing_theta, pointing_phi = ptg[:,0], ptg[:,1]
         if self.execmode == 'debug':
@@ -511,22 +516,22 @@ class CPU_DUCCnufft_transformer:
         return gclm
 
 class CPU_Lenspyx_transformer:
-    def __init__(self, shttransformer_desc, geominfo, single_prec, epsilon, nthreads, verbosity, planned, deflection_kwargs):
-        self.shttransformer_desc = shttransformer_desc
-        self.geom = get_lenspyxgeom(deflection_kwargs['geominfo']) # geometry.get_geom(deflection_kwargs['geominfo'])
-        self.lenspyx_geom = get_lenspyxgeom(deflection_kwargs['geominfo'])
-        self.deflectionlib = lenspyx_deflection(lens_geom=self.geom, dglm=deflection_kwargs['dlm'], mmax_dlm=deflection_kwargs['geominfo'][1]['lmax'], numthreads=deflection_kwargs['nthreads'], verbosity=deflection_kwargs['verbosity'], epsilon=deflection_kwargs['epsilon'], single_prec=deflection_kwargs['single_prec'])
-       
+    def __init__(self, geominfo_deflection, dglm, mmax_dlm, nthreads, verbosity, epsilon, single_prec):
+        self.lenspyx_geom = get_lenspyxgeom(geominfo_deflection)
+        self.deflectionlib = lenspyx_deflection(
+            lens_geom=self.lenspyx_geom,
+            dglm=dglm,
+            mmax_dlm=mmax_dlm,
+            numthreads=nthreads,
+            verbosity=verbosity,
+            epsilon=epsilon,
+            single_prec=single_prec)
+        
         self.backend = 'CPU'
-        self.single_prec = single_prec
-        self.epsilon = epsilon
-        self.nthreads = nthreads
-        self.verbosity = verbosity
-        self.planned = planned
         self.execmode = None
     
     def _ensure_dtype(self, item):
-        if self.single_prec:
+        if self.deflectionlib.single_prec:
             item = item.astype(np.float32)
         else:
             item = item.astype(np.double)
@@ -536,7 +541,7 @@ class CPU_Lenspyx_transformer:
         return np.atleast_2d(item)
     
     def _ensure_complexdtype(self, item):
-        if self.single_prec:
+        if self.deflectionlib.single_prec:
             item = item.astype(np.complex64)
         else:
             item = item.astype(np.complex128)
@@ -553,11 +558,11 @@ class CPU_Lenspyx_transformer:
         if self.single_prec:
             assert lenmap.dtype in [np.float32], "lenmap must be single precision"
             assert gclm_out.dtype in [np.complex64], "gclm_out must be single precision"
-            assert self.epsilon>1e-6, "epsilon must be > 1e-6 for single precision"
+            assert self.deflectionlib.epsilon>1e-6, "epsilon must be > 1e-6 for single precision"
         else:
             assert lenmap.dtype in [np.float64], "lenmap must be double precision"
             assert gclm_out.dtype in [np.complex128], "gclm_out must be double precision"
-            assert self.epsilon<=1e-6, "epsilon must be > 1e-6 for double precision"
+            assert self.deflectionlib.epsilon<=1e-6, "epsilon must be > 1e-6 for double precision"
             
     @timing_decorator
     # @shape_decorator
@@ -586,7 +591,7 @@ class CPU_Lenspyx_transformer:
             print('Running in {} execution mode'.format(execmode))
             self.execmode = execmode
             self.deflectionlib.execmode = self.execmode
-            self.nthreads = self.nthreads if nthreads is None else nthreads
+            self.deflectionlib.nthreads = self.nthreads if nthreads is None else nthreads
             
         self.timer = timer(1, prefix=self.backend)
         self.timer.start('gclm2lenmap()')
@@ -601,12 +606,12 @@ class CPU_Lenspyx_transformer:
         
         if ptg is None:
             ptg = self.dlm2pointing()
-            ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
-        lenmap = self.synthesis_general(lmax, mmax, gclm, ptg, spin, self.epsilon, nthreads, ducc_sht_mode(gclm, spin), self.verbosity)
+            ptg = np.array(ptg, dtype=np.float64) if not self.deflectionlib.single_prec else np.array(ptg, dtype=np.float32)
+        lenmap = self.synthesis_general(lmax, mmax, gclm, ptg, spin, self.deflectionlib.epsilon, nthreads, ducc_sht_mode(gclm, spin), self.deflectionlib.verbosity)
         
         if self.execmode == 'timing':
             self.timer.close('gclm2lenmap()')
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_lenspyx_{}_e{}'.format(lmax, self.epsilon))
+            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_lenspyx_{}_e{}'.format(lmax, self.deflectionlib.epsilon))
             print(self.timer)
             print("::timing:: stored new timing data")
         if self.execmode == 'debug':
