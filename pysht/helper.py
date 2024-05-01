@@ -1,4 +1,6 @@
 import functools
+import os
+import pysht
 import numpy as np
 import cupy as cp
 
@@ -9,12 +11,38 @@ def timing_decorator(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         tkey = func.__name__.replace('___', ' ').replace('__', '-').replace('_', '')
-        args[0].timer.reset()
+        t0, ti = args[0].timer.reset()
         cp.cuda.runtime.deviceSynchronize()
         _ = func(*args, **kwargs)
         cp.cuda.runtime.deviceSynchronize()
         args[0].timer.add(tkey)
+        args[0].timer.set(t0, ti)
         print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
+        return _
+    return wrapper
+
+
+def timing_decorator_close(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        tkey = func.__name__.replace('___', ' ').replace('__', '-').replace('_', '')
+        t0, ti = args[0].timer.reset()
+        args[0].timer.reset_ti()
+        args[0].timer.add(tkey)
+        cp.cuda.runtime.deviceSynchronize()
+        _ = func(*args, **kwargs)
+        cp.cuda.runtime.deviceSynchronize()
+        args[0].timer.add_elapsed(tkey)
+        print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
+        args[0].timer.set(t0, ti)
+        if args[0].execmode == 'timing':
+            args[0].timer.close(args[0].__class__.__name__)
+            dirname = os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/{}/{}/'.format(args[0].__class__.__name__, func.__name__)
+            if not os.path.exists(dirname):
+                os.makedirs(dirname)
+            args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}".format(kwargs['lmax'], args[0].deflectionlib.epsilon))
+            print(args[0].timer)
+            print("::timing:: stored new timing data")
         return _
     return wrapper
 

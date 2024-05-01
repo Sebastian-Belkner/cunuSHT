@@ -30,8 +30,6 @@ To profile:
  2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"
 
 
-
-
 ## Rusty @ Simons
 
 ```

@@ -18,10 +18,10 @@ from ducc0.sht.experimental import adjoint_synthesis_general, synthesis_general
 
 import pysht
 from pysht import cacher
-from pysht.utils import timer
+from pysht.utils import timer as tim
 import pysht.geometry as geometry
 from pysht.geometry import Geom
-from pysht.helper import shape_decorator, timing_decorator, debug_decorator
+from pysht.helper import shape_decorator, timing_decorator, debug_decorator, timing_decorator_close
 from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
@@ -55,11 +55,11 @@ except:
 def ducc_sht_mode(gclm, spin):
     gclm_ = np.atleast_2d(gclm)
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
-
+timer = tim(1, prefix='GPU')
 class deflection:
     def __init__(self, geominfo, shttransformer_desc='ducc', timer_instance=None):
         if timer_instance is None:
-            self.timer = timer(1, prefix=self.backend)
+            self.timer = timer
         else:
             self.timer = timer_instance
         self.cacher = cacher.cacher_mem()
@@ -84,11 +84,12 @@ class deflection:
         buff = np.array([_.reshape(self.lmax_dlm+1,-1).T.flatten() for _ in m])
         return buff
 
-    def _build_d1(self, dlm, lmax_dlm, mmax_dlm, nthreads, dclm=None):
+    @timing_decorator
+    def _spin__1___synth(self, dlm, lmax_dlm, mmax_dlm, nthreads, dclm=None):
         '''
         This depends on the backend. If SHTns, we can use the synthesis_der1 method. If not, we use a spin-1 SHT
         # FIXME this is a bit of a mess, this function should not distinguish between different SHT backends.
-        # Instead, there should be a _build_d1() for each, and they should sit in the repsective transformer modules.
+        # Instead, there should be a _spin__1___synth() for each, and they should sit in the repsective transformer modules.
         '''
         ll = np.arange(0,lmax_dlm+1,1)
         if self.shttransformer_desc == 'shtns':
@@ -125,13 +126,14 @@ class deflection:
         fns = ['ptg'] + calc_rotation * ['gamma']
         if not np.all([self.cacher.is_cached(fn) for fn in fns]):
 
-            d1 = self._build_d1(dlm, lmax_dlm, mmax_dlm, nthreads)
+            d1 = self._spin__1___synth(dlm, lmax_dlm, mmax_dlm, nthreads)
             # self.timer.add('spin-1 maps')
             # Probably want to keep red, imd double precision for the calc?
             if HAS_DUCCPOINTING:
                 tht, phi0, nph, ofs = self.geom.theta, self.geom.phi0, self.geom.nph, self.geom.ofs
                 tht_phip_gamma = get_deflected_angles(theta=tht, phi0=phi0, nphi=nph, ringstart=ofs, deflect=d1.T,
                                                         calc_rotation=calc_rotation, nthreads=nthreads)
+                self.timer.add('pointing')
                 if calc_rotation:
                     self.cacher.cache(fns[0], tht_phip_gamma[:, 0:2])
                     self.cacher.cache(fns[1], tht_phip_gamma[:, 2] if not self.single_prec else tht_phip_gamma[:, 2].astype(np.float32))
@@ -191,36 +193,30 @@ class CPU_DUCCnufft_transformer:
         Raises:
             ValueError: _description_
         """
+        self.timer = timer
+        self.timer.reset_ti()
+        self.timer.start(self.__class__.__name__)
+        
         if planned:
             assert False, "planned mode not supported"
         self.backend = 'GPU'
         self.shttransformer_desc = shttransformer_desc
         self.planned = planned
         self.execmode = None
+        self.timer = timer
         self.ret = {} # This is for execmode='debug'
         
         # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
         self.ntheta_CAR = (ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4
         self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
-        
-        if False:
-            # The following in principle sets the SHT transformer and geometry for it, but it is not used as we do all transforms via ducc.sht.experimental
-            self.geominfo_CAR = ('cc',{'lmax': geominfo_deflection[1]['lmax'], 'mmax':geominfo_deflection[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
-            if shttransformer_desc == 'shtns':
-                self.BaseClass = type('GPU_SHTns_transformer', (CPU_SHT_SHTns_transformer,), {})
-            elif shttransformer_desc == 'ducc':
-                self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
-            else:
-                raise ValueError('shttransformer_desc must be either "ducc" or "shtns"')
-            self.instance = self.BaseClass(geominfo=self.geominfo_CAR)
             
         self.ntheta_dCAR, self.nphi_dCAR = int(2*self.ntheta_CAR-2), int(self.nphi_CAR)
         self.CARmap = np.empty((self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
         self.CARdmap = np.empty((self.ntheta_dCAR*self.nphi_dCAR), dtype=np.double)
         
-        self.timer = timer(1, prefix=self.backend)
         self.deflectionlib = deflection(geominfo=geominfo_deflection, shttransformer_desc=shttransformer_desc, timer_instance=self.timer)
+        self.timer.add("init")
 
 
     def _ensure_dtype_nuFFT(self, item):
@@ -409,6 +405,7 @@ class CPU_DUCCnufft_transformer:
         
         return alm
 
+    @timing_decorator
     def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, epsilon, nthreads, polrot=True, ptg=None, lenmap=None, verbosity=1, execmode=0):
         """CPU algorithm for spin-n remapping using duccnufft
             Args:
@@ -417,6 +414,7 @@ class CPU_DUCCnufft_transformer:
                 spin: spin (>=0) of the transform
                 backwards: forward or backward (adjoint) operation
         """
+        
         self.single_prec = True if epsilon>1e-6 else False
         dlm = np.atleast_2d(dlm)
         s2_d = np.sum(alm2cl(dlm[0], dlm[0], lmax, mmax, lmax) * (2 * np.arange(lmax + 1) + 1)) / (4 * np.pi)
@@ -432,10 +430,7 @@ class CPU_DUCCnufft_transformer:
         if dlm.shape[0]==1:
             # FIXME this is to align shape of dlm for the next steps
             dlm = dlm[0]
-        
-        self.timer.start('gclm2lenmap()')
-            
-        @timing_decorator
+
         def setup(self, nthreads):
             assert execmode in ['normal', 'debug', 'timing']
             print('Running in {} execution mode')
@@ -462,20 +457,16 @@ class CPU_DUCCnufft_transformer:
         lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=verbosity)
         lenmap = self.rotate(lenmap, polrot, spin, nthreads)
         
-        if self.execmode == 'timing':
-            self.timer.close('gclm2lenmap()')
-            print(self.timer)
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_duccnufft_{}_e{}'.format(lmax, epsilon))
         if self.execmode == 'debug':
             return self.ret
         else:
             return lenmap.real if spin == 0 else lenmap.view(rtype[lenmap.dtype]).reshape((lenmap.size, 2)).T
 
-
+    @timing_decorator
     def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, ptg=None, verbosity=1, execmode='normal'):
-        self.single_prec = True if epsilon>1e-6 else False
         self.timer.start('lenmap2gclm()')
         
+        self.single_prec = True if epsilon>1e-6 else False
         self._assert_shape(lenmap, gclm_out, ndim=2)
         self._assert_precision(lenmap, gclm_out, epsilon)
         
@@ -517,6 +508,10 @@ class CPU_DUCCnufft_transformer:
 
 class CPU_Lenspyx_transformer:
     def __init__(self, geominfo_deflection, dglm, mmax_dlm, nthreads, verbosity, epsilon, single_prec):
+        self.timer = timer
+        self.timer.reset_ti()
+        self.timer.start(self.__class__.__name__)
+        
         self.lenspyx_geom = get_lenspyxgeom(geominfo_deflection)
         self.deflectionlib = lenspyx_deflection(
             lens_geom=self.lenspyx_geom,
@@ -529,6 +524,9 @@ class CPU_Lenspyx_transformer:
         
         self.backend = 'CPU'
         self.execmode = None
+        
+        self.ret = {}
+        self.timer.add('init')
     
     def _ensure_dtype(self, item):
         if self.deflectionlib.single_prec:
@@ -581,58 +579,42 @@ class CPU_Lenspyx_transformer:
     @debug_decorator      
     def dlm2pointing(self):
         return self.deflectionlib._get_ptg()           
-            
+    
+    @timing_decorator_close
     def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, execmode='normal'):
-        self.ret = {}
-        
-        @timing_decorator
+
         def setup(self, nthreads):
             assert execmode in ['normal','debug', 'timing']
             print('Running in {} execution mode'.format(execmode))
             self.execmode = execmode
             self.deflectionlib.execmode = self.execmode
             self.deflectionlib.nthreads = self.nthreads if nthreads is None else nthreads
-            
-        self.timer = timer(1, prefix=self.backend)
-        self.timer.start('gclm2lenmap()')
         
         gclm = self._ensure_complexdtype(gclm)
         gclm = self._ensure_shape(gclm)
         if lenmap is not None:
             lenmap = self._ensure_dtype(lenmap)
             self._assert_precision(lenmap, gclm)
-        
         setup(self, nthreads)
         
         if ptg is None:
             ptg = self.dlm2pointing()
             ptg = np.array(ptg, dtype=np.float64) if not self.deflectionlib.single_prec else np.array(ptg, dtype=np.float32)
         lenmap = self.synthesis_general(lmax, mmax, gclm, ptg, spin, self.deflectionlib.epsilon, nthreads, ducc_sht_mode(gclm, spin), self.deflectionlib.verbosity)
-        
-        if self.execmode == 'timing':
-            self.timer.close('gclm2lenmap()')
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/gclm2lenmap/CPU_lenspyx_{}_e{}'.format(lmax, self.deflectionlib.epsilon))
-            print(self.timer)
-            print("::timing:: stored new timing data")
         if self.execmode == 'debug':
             print("::debug:: returned component results")
             return self.ret
         return lenmap
 
-
+    @timing_decorator_close
     def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, ptg=None, execmode='normal'):
-        self.ret = {}
-        
-        @timing_decorator
+
         def setup(self, nthreads):
             assert execmode in ['normal','debug', 'timing']
             print('Running in {} execution mode'.format(execmode))
             self.execmode = execmode
             self.deflectionlib.execmode = self.execmode
             self.nthreads = self.nthreads if nthreads is None else nthreads
-        
-        self.timer = timer(1, prefix=self.backend)
-        self.timer.start('lenmap2gclm()')
         
         lenmap = self._ensure_dtype(lenmap)
         gclm_out = self._ensure_complexdtype(gclm_out)
@@ -644,12 +626,7 @@ class CPU_Lenspyx_transformer:
             ptg = self.dlm2pointing()
             ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
         gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbosity)
-
-        if self.execmode == 'timing':
-            self.timer.close('lenmap2gclm()')
-            self.timer.dumpjson(os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/lenmap2gclm/CPU_lenspyx_{}_e{}'.format(lmax, self.epsilon))
-            print(self.timer)
-            print("::timing:: stored new timing data")
+       
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
             return self.ret

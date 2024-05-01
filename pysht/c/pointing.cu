@@ -552,3 +552,19 @@ NB_MODULE(popy, m) {
         "outarr_pp"_a.noconvert()
     );
 }
+
+
+template <typename Scalar>
+void CUpointing_1Dto1D_lowmem(
+    nb::ndarray<const Scalar, nb::ndim<1>, nb::device::cuda> thetas,
+    ...) {
+        compute_pointing_1Dto1D_lowmem<<<num_blocks, block_size>>>(outarr_pt.data(), outarr_pp.data(), thetas.data(), ...);
+    };
+
+NB_MODULE(popy, m) {
+    m.def("CUpointing_1Dto1D_lowmem",
+        &CUpointing_1Dto1D_lowmem<double>,
+        "thetas"_a.noconvert(),
+        ...
+    );
+}

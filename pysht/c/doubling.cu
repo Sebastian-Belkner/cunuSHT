@@ -57,7 +57,7 @@ __global__ void compute_adjoint_doubling_spin0_1D(const Scalar* doubling1D, cons
     if (idx <= ntheta-1) {
         const size_t nphihalf = nphi / 2;
         const size_t npixplusnphihalf = 2*(ntheta-2)*nphi + nphihalf;
-        const size_t doubleringi =  (ntheta-1 + idx) % ntheta;
+        const size_t doubleringi = (ntheta-1 + idx) % ntheta;
         for (size_t phii = 0; phii < nphi; ++phii) {
             synth1D[idx * nphi + phii] = doubling1D[idx * nphi + phii];
             if (idx>0 and idx<ntheta-1){

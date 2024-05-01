@@ -23,7 +23,12 @@ class timer:
         return self
 
     def reset(self):
+        t0_, ti_ = self.t0, self.ti
         self.t0 = time.time()
+        return t0_, ti_
+        
+    def set(self, t0, ti):
+        self.t0, self.ti = t0, ti
 
     def reset_ti(self):
         self.ti = time.time()
