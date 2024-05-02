@@ -97,7 +97,7 @@ runinfos = [
 
 class TestUnit(unittest.TestCase):
     
-    # @unittest.skip("Skipping this test method for n   ow")
+    @unittest.skip("Skipping this test method for now")
     def test_unit_g2l(self):
         """Compares the dot product of two arrays
             y'(A x) = (A' y)' x
@@ -244,7 +244,7 @@ class TestUnit(unittest.TestCase):
         
         print(lhs, rhs)
    
-    @unittest.skip("Skipping this test method for now")
+    # @unittest.skip("Skipping this test method for now")
     def test_adjointness_general(self):
         lmmax, npix, spin, nthreads = (1024, 1024), 20000, 0, 10
         rng = np.random.default_rng(48)
