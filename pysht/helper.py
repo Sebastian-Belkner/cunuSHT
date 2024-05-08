@@ -40,9 +40,9 @@ def timing_decorator_close(func):
             dirname = os.path.dirname(pysht.__file__)[:-5]+'/test/benchmark/timings/{}/{}/'.format(args[0].__class__.__name__, func.__name__)
             if not os.path.exists(dirname):
                 os.makedirs(dirname)
-            args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}".format(kwargs['lmax'], args[0].deflectionlib.epsilon))
+            args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}".format(kwargs['lmax'], args[0].epsilon))
             print(args[0].timer)
-            print("::timing:: stored new timing data")
+            print("::timing:: stored new timing data for lmax {}".format(kwargs['lmax']))
         return _
     return wrapper
 

@@ -69,13 +69,12 @@ for epsilon in epsilons:
                     nalm = toyunllm.shape[-1]
                     gclm = np.array(np.zeros(shape=(1, nalm)), dtype=np.complex128) if not single_prec else np.array(np.zeros(shape=(nalm)), dtype=np.complex64)
                     _ = Tsky2.copy()
-                    print(_.shape)
                     defres[backend][solver] = t.lenmap2gclm(
                         np.atleast_2d(_), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, gclm_out=gclm, nthreads=10, execmode='timing', ptg=None)
                 else:
                     kwargs = {
                         'geominfo_deflection': lenjob_geominfo,
-                        'planned': False,
+                        'nuFFTtype': 1,
                     }
                     single_prec = epsilon >= 1e-6
                     t = t(**kwargs)
@@ -88,7 +87,7 @@ for epsilon in epsilons:
                 kwargs = {
                     'geominfo_deflection': lenjob_geominfo,
                     'epsilon': epsilon,
-                    'planned': True,
+                    'nuFFTtype': 1,
                 }
                 single_prec = kwargs["epsilon"] >= 1e-6
                 t = t(**kwargs)

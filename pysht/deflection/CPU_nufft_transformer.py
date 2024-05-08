@@ -177,11 +177,11 @@ class deflection:
     def dlm2pointing(self, dlm, mmax_dlm, single_prec, nthreads):
         self.single_prec = single_prec
         pointing_theta, pointing_phi =  self._get_ptg(dlm, mmax_dlm, nthreads).T
-        return tuple([pointing_theta, pointing_phi])
+        return np.array([pointing_theta, pointing_phi])
 
 
 class CPU_DUCCnufft_transformer:
-    def __init__(self, geominfo_deflection, shttransformer_desc='ducc', planned=True, epsilon=None):
+    def __init__(self, geominfo_deflection, shttransformer_desc='ducc', nuFFTtype=None, epsilon=None):
         """This is not the fastest way of performing synthesis_general, but serves as a compoarison to GPU code
 
         Args:
@@ -197,11 +197,11 @@ class CPU_DUCCnufft_transformer:
         self.timer.reset_ti()
         self.timer.start(self.__class__.__name__)
         
-        if planned:
-            assert False, "planned mode not supported"
+        if nuFFTtype:
+            assert False, "nuFFTtype mode not supported"
         self.backend = 'GPU'
         self.shttransformer_desc = shttransformer_desc
-        self.planned = planned
+        self.nuFFTtype = nuFFTtype
         self.execmode = None
         self.timer = timer
         self.ret = {} # This is for execmode='debug'
@@ -431,7 +431,7 @@ class CPU_DUCCnufft_transformer:
             # FIXME this is to align shape of dlm for the next steps
             dlm = dlm[0]
 
-        def setup(self, nthreads):
+        def setup(self, gclm, nthreads):
             assert execmode in ['normal', 'debug', 'timing']
             print('Running in {} execution mode')
             nthreads = self.nthreads if nthreads is None else nthreads
@@ -440,7 +440,7 @@ class CPU_DUCCnufft_transformer:
             self.execmode = execmode
             self.deflectionlib.execmode = self.execmode
          
-        setup(self, nthreads)
+        setup(self, gclm, nthreads)
         if lenmap is not None:
             lenmap = self._ensure_dtype(lenmap)
             self._assert_precision(lenmap, gclm, epsilon)
@@ -505,13 +505,42 @@ class CPU_DUCCnufft_transformer:
             return self.ret
         del lenmap, pointing_theta, pointing_phi
         return gclm
+    
+    def gclm2lenpixs(self, gclm:np.ndarray, mmax:int or None, spin:int, pixs:np.ndarray[int], polrot=True, ptg=None, nthreads=10):
+        """Produces the remapped field on the required lensing geometry pixels 'exactly', by brute-force calculation
+            Note:
+                The number of pixels must be small here, otherwise way too slow
+            Note:
+                If the remapping angles etc were not calculated previously, it will build the full map, so may take some time.
+        """
+        assert spin >= 0, spin
+        gclm = np.atleast_2d(gclm)
+        sth_mode = ducc_sht_mode(gclm, spin)
+        if ptg is None:
+            ptg = self._get_ptg()
+        thts, phis = ptg[0, pixs], ptg[1, pixs]
+        nph = 2 * np.ones(thts.size, dtype=np.uint64)  # I believe at least 2 points per ring
+        ofs = 2 * np.arange(thts.size, dtype=np.uint64)
+        wt = np.ones(thts.size, dtype=float)
+        from lenspyx.remapping.utils_geom import Geom as LG
+        geom = LG(thts.copy(), phis.copy(), nph, ofs, wt)
+        gclm = np.atleast_2d(gclm)
+        lmax = Alm.getlmax(gclm[0].size, mmax)
+        if mmax is None: mmax = lmax
+        m = geom.synthesis(gclm, spin, lmax, mmax, nthreads, mode=sth_mode)[:, 0::2]
+        # could do: complex view trick etc
+        if spin and polrot:
+            gamma = self._get_gamma()[pixs]
+            m = np.exp(1j * spin * gamma) * (m[0] + 1j * m[1])
+            return m.real, m.imag
+        return m.squeeze()
 
 class CPU_Lenspyx_transformer:
     def __init__(self, geominfo_deflection, dglm, mmax_dlm, nthreads, verbosity, epsilon, single_prec):
         self.timer = timer
         self.timer.reset_ti()
         self.timer.start(self.__class__.__name__)
-        
+        self.epsilon = epsilon
         self.lenspyx_geom = get_lenspyxgeom(geominfo_deflection)
         self.deflectionlib = lenspyx_deflection(
             lens_geom=self.lenspyx_geom,

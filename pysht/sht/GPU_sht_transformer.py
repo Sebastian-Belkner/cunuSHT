@@ -36,6 +36,9 @@ class GPU_SHTns_transformer():
         assert 0, "implement if needed"
         self.constructor = shtns.sht(int(lmax), int(mmax))
         self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS)
+        
+    def destroy(self):
+        del self.constructor
 
 
     @shape_decorator

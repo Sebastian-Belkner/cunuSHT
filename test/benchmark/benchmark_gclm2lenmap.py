@@ -15,7 +15,7 @@ runinfos = [
     # ("CPU", "duccnufft"),
     ("GPU", "cufinufft")
     ]
-epsilons = [1e-10]
+epsilons = [1e-6]
 # lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
 lmaxs = [256*int(sys.argv[1])-1]
 phi_lmaxs = [lmax for lmax in lmaxs]
@@ -30,10 +30,13 @@ for epsilon in epsilons:
             geominfo = ('gl',{'lmax':lmax})
             lenjob_geominfo = ('gl',{'lmax':phi_lmax})
             lldlm = np.arange(0,phi_lmax+1)
-            synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
-            philm = synunl.get_sim_phi(0, space='alm')
-            toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
-            toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
+            # synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
+            # philm = synunl.get_sim_phi(0, space='alm')
+            # toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
+            # toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
+            nalm_unl = hp.Alm.getsize(lmax, mmax=lmax)
+            toyunllm = np.array([np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6])
+            toydlm = np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6
 
             backend = runinfo[0]
             defres.update({backend: {}}) if backend not in defres.keys() else None
@@ -58,7 +61,7 @@ for epsilon in epsilons:
                 else:
                     kwargs = {
                         'geominfo_deflection': lenjob_geominfo,
-                        'planned': False,
+                        'nuFFTtype': 2,
                     }
                     t = t(**kwargs)
                     defres[backend][solver] = t.gclm2lenmap(
@@ -67,11 +70,20 @@ for epsilon in epsilons:
                 kwargs = {
                     'geominfo_deflection': lenjob_geominfo,
                     'epsilon': epsilon,
-                    'planned': True,
+                    'nuFFTtype': 2,
                 }
                 t = t(**kwargs)
                 lenmap = cp.empty(t.deflectionlib.constructor.spat_shape, dtype=cp.complex128).flatten()
                 ll = np.arange(0,lmax+1,1)
                 dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
-                dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
-                defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, nthreads=nthreads, lenmap=lenmap, execmode='timing')
+                dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) #if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
+                # npix = lenmap.size
+                # rng = np.random.default_rng(48)
+                # loc = rng.uniform(0., 1., (npix,2))
+                # loc[:, 0] *= np.pi
+                # loc[:, 1] *= 2*np.pi
+                # ptg = cp.array(loc)
+                # print(lenmap.size, toyunllm.size)
+                # import sys
+                # sys.exit()
+                defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, nthreads=nthreads, lenmap=lenmap, ptg=None, execmode='timing')
