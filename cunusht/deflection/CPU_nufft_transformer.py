@@ -16,8 +16,8 @@ from lenspyx.remapping.utils_angles import d2ang
 import ducc0
 from ducc0.sht.experimental import adjoint_synthesis_general, synthesis_general
 
-import cunusht.cunusht as cunusht
-from cunusht.cunusht import cacher
+import cunusht
+from cunusht import cacher
 from cunusht.utils import timer as tim
 import cunusht.geometry as geometry
 from cunusht.geometry import Geom

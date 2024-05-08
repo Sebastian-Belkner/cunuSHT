@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 
-from pysht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
-from pysht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_Lenspyx_transformer
+from cunusht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
+from cunusht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_Lenspyx_transformer
 
-from pysht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
-from pysht.sht.GPU_sht_transformer import GPU_SHTns_transformer
-from pysht.visitor import transform, transform3d
-from pysht.geometry import Geom
+from cunusht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
+from cunusht.sht.GPU_sht_transformer import GPU_SHTns_transformer
+from cunusht.visitor import transform, transform3d
+from cunusht.geometry import Geom
 
 class CPU_SHT_Transformer:
     def build(self, solver):

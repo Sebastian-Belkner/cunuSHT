@@ -1,7 +1,7 @@
 Timer unit: 1e-06 s
 
 Total time: 6.07411 s
-File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py
+File: /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py
 Function: _build_angles at line 96
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
@@ -54,4 +54,4 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    141         1          1.7      1.7      0.0              assert startpix == npix, (startpix, npix)
    142         1          0.3      0.3      0.0              return
 
-  6.07 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py:96 - _build_angles
+  6.07 seconds - /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py:96 - _build_angles
