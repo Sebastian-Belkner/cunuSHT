@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 import time
 import healpy as hp
-import pysht
+import cunusht
 import sys
 from time import process_time
 from delensalot.sims.sims_lib import Xunl, Xsky
@@ -66,7 +66,7 @@ class Test(unittest.TestCase):
                         defres[backend].update({solver : None}) if solver not in defres[backend].keys() else None
                         for mode in ['nuFFT']:
                             print("\nTesting:: solver = {} backend = {} mode = {} ...".format(solver, backend, mode))
-                            t = pysht.get_transformer(solver, mode, backend)
+                            t = cunusht.get_transformer(solver, mode, backend)
                             t = t(**kwargs)
                             
                             nrings = len(t.geom.ofs)

@@ -1,7 +1,7 @@
 Timer unit: 1e-06 s
 
 Total time: 0.84829 s
-File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py
+File: /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py
 Function: _build_angles at line 93
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
@@ -54,7 +54,7 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    138                                                       return
 
 Total time: 18.9288 s
-File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py
+File: /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py
 Function: gclm2lenmap at line 191
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
@@ -88,10 +88,10 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    217                                           
    218                                                   
    219                                                   ### SYNTHESIS CC GEOMETRY ###
-   220         1          8.8      8.8      0.0          import pysht
+   220         1          8.8      8.8      0.0          import cunusht
    221         1          4.2      4.2      0.0          geominfo_cc = ('cc',{'nphi':2*(lmax+1), 'ntheta':lmax+1})
-   222                                                   # tcc = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_cc)
-   223         1   11755110.7    1e+07     62.1          tcc = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_cc)
+   222                                                   # tcc = cunusht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_cc)
+   223         1   11755110.7    1e+07     62.1          tcc = cunusht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_cc)
    224         1     230486.9 230486.9      1.2          map = tcc.synthesis(gclm, spin=0, lmax=lmax, mmax=mmax, nthreads=4).reshape(lmax+1,-1)
    225         1         36.2     36.2      0.0          print(' ------------ Finished synthesis on CC -------------')
    226                                           
@@ -171,5 +171,5 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    300         1          2.7      2.7      0.0          print(' ------------ returning result ------------')
    301         1      91901.2  91901.2      0.5          return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
 
-  0.85 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py:93 - _build_angles
- 18.93 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/GPU_nufft_transformer.py:191 - gclm2lenmap
+  0.85 seconds - /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py:93 - _build_angles
+ 18.93 seconds - /mnt/home/sbelkner/git/cunusht/cunusht/deflection/GPU_nufft_transformer.py:191 - gclm2lenmap

@@ -9,13 +9,13 @@ import numpy as np
 import cupy as cp
 import shtns
 import healpy as hp
-import pysht
+import cunusht
 import ducc0
 from numpy.testing import assert_allclose
 
 from lenspyx.utils_hp import alm_copy
-from pysht.geometry import get_geom
-from pysht.deflection.CPU_nufft_transformer import deflection
+from cunusht.geometry import get_geom
+from cunusht.deflection.CPU_nufft_transformer import deflection
 
 from ducc0.sht.experimental import adjoint_synthesis_general, synthesis_general
 from delensalot.sims.sims_lib import Xunl, Xsky
@@ -155,7 +155,7 @@ class TestUnit(unittest.TestCase):
                 ll = np.arange(0,deflection_kwargs["mmax_dlm"]+1,1)
                 dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
                 dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if not deflection_kwargs["single_prec"] else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
-                t = pysht.get_transformer(solver, mode, backend)
+                t = cunusht.get_transformer(solver, mode, backend)
                 t = t(**kwargs, deflection_kwargs=deflection_kwargs)
                 
                 nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)

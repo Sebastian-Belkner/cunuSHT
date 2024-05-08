@@ -16,7 +16,7 @@ import numpy as np
 import time
 import healpy as hp
 import matplotlib.pyplot as plt
-import pysht
+import cunusht
 import sys
 from time import process_time
 
@@ -63,7 +63,7 @@ class TestUnit(unittest.TestCase):
                     'geominfo': lenjob_geominfo,
                 }
 
-                tGPU = pysht.get_transformer(solver='cufinufft', mode='nuFFT', backend='GPU')(**kwargs, deflection_kwargs=deflection_kwargs)
+                tGPU = cunusht.get_transformer(solver='cufinufft', mode='nuFFT', backend='GPU')(**kwargs, deflection_kwargs=deflection_kwargs)
                 pointing_theta = cp.zeros((tGPU.deflectionlib.geom.npix()), dtype=cp.double)
                 pointing_phi = cp.zeros((tGPU.deflectionlib.geom.npix()), dtype=cp.double)
                 tGPU.deflectionlib.dlm2pointing(toydlm, pointing_theta, pointing_phi)
@@ -77,7 +77,7 @@ class TestUnit(unittest.TestCase):
                     'single_prec': False,
                     'shttransformer_desc': 'ducc'
                 }
-                tCPU = pysht.get_transformer(solver='duccnufft', mode='nuFFT', backend='CPU')(**kwargs, deflection_kwargs=deflection_kwargs)   
+                tCPU = cunusht.get_transformer(solver='duccnufft', mode='nuFFT', backend='CPU')(**kwargs, deflection_kwargs=deflection_kwargs)   
                 pt_CPU, pp_CPU = tCPU.deflectionlib.dlm2pointing(toydlm)
                 
                 res_theta = np.std(pt_CPU - pointing_theta.get())
@@ -85,10 +85,10 @@ class TestUnit(unittest.TestCase):
                 
                 # import matplotlib.pyplot as plt
                 # plt.imshow((pp_CPU - pointing_phi.get()).reshape(-1,tGPU.constructor.nphi), cmap='seismic', vmin=-1e-15, vmax=1e-15)
-                # plt.savefig("/mnt/home/sbelkner/git/pySHT/test/test_class_deflection_phi.png")
+                # plt.savefig("/mnt/home/sbelkner/git/cunusht/test/test_class_deflection_phi.png")
                 
                 # plt.imshow((pt_CPU - pointing_theta.get()).reshape(-1,tGPU.constructor.nphi), cmap='seismic', vmin=-1e-15, vmax=1e-15)
-                # plt.savefig("/mnt/home/sbelkner/git/pySHT/test/test_class_deflection_theta.png")
+                # plt.savefig("/mnt/home/sbelkner/git/cunusht/test/test_class_deflection_theta.png")
                 
                 self.assertLess(res_theta, 1e-8, msg="res_theta: {}".format(res_theta))
                 # self.assertLess(res_phi, 1e-8, msg="res_phi: {}".format(res_phi))

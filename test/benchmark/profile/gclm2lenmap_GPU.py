@@ -4,8 +4,8 @@ import healpy as hp
 import matplotlib.pyplot as plt
 import cupy as cp
 import lenspyx
-import pysht
-from pysht import get_geom
+import cunusht
+from cunusht import get_geom
 import delensalot
 from delensalot import utils
 from ducc0.misc import get_deflected_angles
@@ -51,7 +51,7 @@ deflection_kwargs = {
 #     for backend in ['CPU']:
 #         for mode in ['nuFFT']:
 #             print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
-#             t = pysht.get_transformer(solver, mode, backend)
+#             t = cunusht.get_transformer(solver, mode, backend)
 #             t = t(sht_solver, geominfo, deflection_kwargs)
 #             t_gpu = t
 #             # t.set_geometry(geominfo)
@@ -71,13 +71,13 @@ for solver in ['cufinufft']:
     for backend in ['GPU']:
         for mode in ['nuFFT']:
             print("Testing solver={} backend={} mode={}...".format(solver, backend, mode))
-            t = pysht.get_transformer(solver, mode, backend)
+            t = cunusht.get_transformer(solver, mode, backend)
             t = t(sht_solver, geominfo, deflection_kwargs)
             t_gpu = t
             # t.set_geometry(geominfo)
             print("\n----Testing function gclm2lenmap...----")
             t1 = process_time()
-            tCAR = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_CAR)
+            tCAR = cunusht.get_transformer('ducc', 'SHT', 'CPU')(geominfo_CAR)
             defres = t.gclm2lenmap(gclm=Tunl.copy(), dlm=dlm, lmax=lmax, mmax=lmax, spin=0, nthreads=4,  cc_transformer=tCAR, HAS_DUCCPOINTING=True, mode=0)
             t2 = process_time()
             # FIXME after return, sometimes segmentation fault. Perhaps GPU not properly released

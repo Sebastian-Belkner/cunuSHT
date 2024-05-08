@@ -11,8 +11,8 @@ import shtns
 import ducc0
 import healpy as hp
 
-import pysht
-import pysht.c.podo_interface as podo
+import cunusht
+import cunusht.c.podo_interface as podo
 
 test_cases = [ 
               (lmax, lmax) for lmax in [2**n-1 for n in np.arange(6, 8)]
@@ -20,7 +20,7 @@ test_cases = [
         
 class TestUnit(unittest.TestCase):
     """
-    Unittests here bypass pysht interface whenever possible, and directly call the functions.
+    Unittests here bypass cunusht interface whenever possible, and directly call the functions.
     """
 
     def test_unit_SHTns_synthgrad_cupyarray(self):
@@ -63,7 +63,7 @@ class TestUnit(unittest.TestCase):
 
 class TestIntegration(unittest.TestCase):
     """
-    Integration tests here use pysht interface whenever possible.
+    Integration tests here use cunusht interface whenever possible.
     """
     
     @unittest.skip("Skipping this test method for now")
@@ -102,7 +102,7 @@ class TestIntegration(unittest.TestCase):
                     'single_prec': False,
                     'nthreads': 10
                 } 
-                tCAR = pysht.get_transformer('shtns', 'SHT', 'GPU')(**kwargs)
+                tCAR = cunusht.get_transformer('shtns', 'SHT', 'GPU')(**kwargs)
                 CARmap = cp.empty((ntheta_CAR, nphi_CAR), dtype=np.double)
                 
                 ntheta_dCAR = 2 * ntheta_CAR-2

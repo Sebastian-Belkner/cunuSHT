@@ -9,12 +9,12 @@ import cupy as cp
 import numpy as np
 import healpy as hp
 
-import pysht
+import cunusht
 import shtns
 
 from ducc0.misc import get_deflected_angles
 
-from pysht.c.podo_interface import Cpointing_ptrs, Cpointing_cparr, Cpointing_1Dto1D
+from cunusht.c.podo_interface import Cpointing_ptrs, Cpointing_cparr, Cpointing_1Dto1D
 
 def input_values(nring):
     npix = int(nring+1)*2*(nring+1)
@@ -85,7 +85,7 @@ class TestIntegration(unittest.TestCase):
             with self.subTest(input_value=test_case):
                 geominfo = ('gl',{'lmax': test_case})
 
-                tGPU = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo)
+                tGPU = cunusht.get_transformer('shtns', 'SHT', 'GPU')(geominfo)
                 alm_random = np.random.randn(tGPU.constructor.nlm)*1e-6 + 1j*np.random.randn(tGPU.constructor.nlm)*1e-6
                 out_spin1theta = cp.empty(shape=tGPU.constructor.spat_shape, dtype=cp.float64)
                 out_spin1phi = cp.empty(shape=tGPU.constructor.spat_shape, dtype=cp.float64)
@@ -96,7 +96,7 @@ class TestIntegration(unittest.TestCase):
                 input_value = self.input_values(test_case, tGPU.geom)
                 Cpointing_1Dto1D(**input_value, spin1_theta=out_spin1theta.T.flatten(), spin1_phi=out_spin1phi.T.flatten(), out_ptheta=out_pointingtheta, out_pphi=out_pointingphi)
 
-                tCPU = pysht.get_transformer('ducc', 'SHT', 'CPU')(geominfo)
+                tCPU = cunusht.get_transformer('ducc', 'SHT', 'CPU')(geominfo)
                 input_value = self.input_values(test_case, tCPU.geom)
                 s1tp = tCPU.synthesis(alm_random, spin=1, lmax=test_case, mmax=test_case, nthreads=10, mode='GRAD_ONLY')
                 tht_phip_gamma = get_deflected_angles(
@@ -117,7 +117,7 @@ class TestIntegration(unittest.TestCase):
                 
                 # import matplotlib.pyplot as plt
                 # plt.imshow((tht_phip_gamma[:,1]-out_pointingphi.get()).reshape(-1,cGPU.nphi), cmap='seismic', vmin=-1e-14, vmax=1e-14)
-                # plt.savefig("/mnt/home/sbelkner/git/pySHT/test/test_pointingGPU.pytest_pointingGPU_theta.png")
+                # plt.savefig("/mnt/home/sbelkner/git/cunusht/test/test_pointingGPU.pytest_pointingGPU_theta.png")
                 self.assertLessEqual(res_theta, 1e-15, msg="np.std(dtheta)={}".format(res_theta))
                 self.assertLessEqual(res_phi, 1e-12, msg="np.std(dphi)={}".format(res_phi))
                 

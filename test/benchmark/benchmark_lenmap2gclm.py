@@ -6,7 +6,7 @@ import numpy as np
 import time
 import healpy as hp
 import matplotlib.pyplot as plt
-import pysht
+import cunusht
 import cupy as cp
 import sys
 from time import process_time
@@ -51,7 +51,7 @@ for epsilon in epsilons:
             solver = runinfo[1]
             defres[backend].update({solver : None}) if solver not in defres[backend].keys() else None
             
-            t = pysht.get_transformer(solver, backend)
+            t = cunusht.get_transformer(solver, backend)
             if backend == 'CPU':
                 if solver == 'lenspyx':
                     

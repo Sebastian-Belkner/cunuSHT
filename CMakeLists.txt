@@ -20,17 +20,17 @@ find_package(nanobind CONFIG REQUIRED)
 
 enable_language(CUDA)
 nanobind_add_module(popy
-  pysht/c/pointing.cu
-  pysht/c/pointing.h
-  pysht/c/pointing.cpp
-  pysht/c/pointing.cuh
+  cunusht/c/pointing.cu
+  cunusht/c/pointing.h
+  cunusht/c/pointing.cpp
+  cunusht/c/pointing.cuh
 )
 
 nanobind_add_module(dopy
-  pysht/c/doubling.cu
-  pysht/c/doubling.h
-  pysht/c/doubling.cpp
-  pysht/c/doubling.cuh
+  cunusht/c/doubling.cu
+  cunusht/c/doubling.h
+  cunusht/c/doubling.cpp
+  cunusht/c/doubling.cuh
 )
 
 # Check if the compiler supports C++17

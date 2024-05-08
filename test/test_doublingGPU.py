@@ -10,9 +10,9 @@ import cupy as cp
 import numpy as np
 from delensalot.sims.sims_lib import Xunl, Xsky
 
-import pysht
-import pysht.c.podo_interface as podo
-from pysht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cadjoint_doubling_1D
+import cunusht
+import cunusht.c.podo_interface as podo
+from cunusht.c.podo_interface import Cdoubling_cparr2D, Cdoubling_1D, Cadjoint_doubling_1D
 
 import ducc0
 
@@ -109,7 +109,7 @@ class TestIntegration(unittest.TestCase):
                 toyunllm = synsky.get_sim_sky(0, spin=0, space='alm', field='temperature')
                 gclm = np.atleast_2d(toyunllm)
                 geominfo_CAR = ('cc',{'lmax': geominfo[1]['lmax'], 'mmax':geominfo[1]['lmax'], 'ntheta':ntheta_CAR, 'nphi':nphi_CAR})
-                cc_transformer = pysht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_CAR)
+                cc_transformer = cunusht.get_transformer('shtns', 'SHT', 'GPU')(geominfo_CAR)
                 
                 CARmap = cp.empty((ntheta_CAR, nphi_CAR), dtype=np.double)
                 ntheta_dCAR, nphi_dCAR = 2*ntheta_CAR-2, nphi_CAR

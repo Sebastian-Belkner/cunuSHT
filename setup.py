@@ -12,10 +12,10 @@ def configuration(parent_package='', top_path=''):
     return config
 
 setup(
-    name='pysht',
+    name='cunusht',
     version='0.1',
-    packages=['pysht'],
-    url='https://github.com/Sebastian-Belkner/pySHT',
+    packages=['cunusht'],
+    url='https://github.com/Sebastian-Belkner/cunuSHT',
     author='Sebastian Belkner',
     author_email='to.sebastianbelkner@gmail.com',
     description='General spin-n SHTs on CPU and GPU',

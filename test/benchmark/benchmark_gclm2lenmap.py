@@ -4,7 +4,7 @@ Benchmark gclm2lenmap by scanning across different solvers, backends, and modes,
 import numpy as np
 import time
 import healpy as hp
-import pysht
+import cunusht
 import sys
 from time import process_time
 from delensalot.sims.sims_lib import Xunl, Xsky
@@ -43,7 +43,7 @@ for epsilon in epsilons:
             solver = runinfo[1]
             defres[backend].update({solver : None}) if solver not in defres[backend].keys() else None
             
-            t = pysht.get_transformer(solver, backend)
+            t = cunusht.get_transformer(solver, backend)
             if backend == 'CPU':
                 if solver == 'lenspyx':
                     kwargs = {

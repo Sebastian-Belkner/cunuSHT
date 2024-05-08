@@ -1,7 +1,7 @@
-# pySHT
+# cunuSHT
 general (adjoint) spin-n SHTs.
 
-pySHT provides functions to calculate spherical harmonic transforms for any uniform and non-uniform grid.
+cunuSHT provides functions to calculate spherical harmonic transforms for any uniform and non-uniform grid.
 
 It can run on both, CPU and GPU, and can do this for (custom) geometries.
 
@@ -18,14 +18,14 @@ Operators:
 
 Currently in 2 steps:
 
-Enter the `pysht/c` folder, and compile the C and CUDA library, and install the python module via the `pyproject.toml`
+Enter the `cunusht/c` folder, and compile the C and CUDA library, and install the python module via the `pyproject.toml`
 
 ```
-cd pysht/c
+cd cunusht/c
 pip install .
 ```
 
-Then, go to the root directory, and install `pysht`:
+Then, go to the root directory, and install `cunusht`:
 
 ```
 cd ./../../
@@ -48,8 +48,8 @@ kwargs = {
 
 Construct your transformer,
 ```
-import pysht
-t = pysht.get_transformer(solver='cufinufft', backend='GPU')
+import cunusht
+t = cunusht.get_transformer(solver='cufinufft', backend='GPU')
 t = t(**kwargs)
 ```
 

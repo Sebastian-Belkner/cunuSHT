@@ -1,7 +1,7 @@
 Timer unit: 1e-06 s
 
 Total time: 6.26713 s
-File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/CPU_nufft_transformer.py
+File: /mnt/home/sbelkner/git/cunusht/cunusht/deflection/CPU_nufft_transformer.py
 Function: _build_angles at line 130
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
@@ -72,7 +72,7 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    193                                                       return
 
 Total time: 14.2658 s
-File: /mnt/home/sbelkner/git/pySHT/pysht/deflection/CPU_nufft_transformer.py
+File: /mnt/home/sbelkner/git/cunusht/cunusht/deflection/CPU_nufft_transformer.py
 Function: gclm2lenmap at line 233
 
 Line #      Hits         Time  Per Hit   % Time  Line Contents
@@ -164,5 +164,5 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
    317         1      94834.4  94834.4      0.7          return values.real.flatten() if spin == 0 else values.view(rtype[values.dtype]).reshape((values.size, 2)).T
    318                                                   # np.atleast_2d(values.real.flatten())
 
-  6.27 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/CPU_nufft_transformer.py:130 - _build_angles
- 14.27 seconds - /mnt/home/sbelkner/git/pySHT/pysht/deflection/CPU_nufft_transformer.py:233 - gclm2lenmap
+  6.27 seconds - /mnt/home/sbelkner/git/cunusht/cunusht/deflection/CPU_nufft_transformer.py:130 - _build_angles
+ 14.27 seconds - /mnt/home/sbelkner/git/cunusht/cunusht/deflection/CPU_nufft_transformer.py:233 - gclm2lenmap

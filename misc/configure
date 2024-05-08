@@ -1,7 +1,7 @@
-module load python cuda; source $pyshtenv; cd pysht/c/
+module load python cuda; source $cunushtenv; cd cunusht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
-nvcc  -o pysht/c/pointing.so -shared -Xcompiler -fPIC pysht/c/pointing.cpp pysht/c/pointing.cu
+nvcc  -o cunusht/c/pointing.so -shared -Xcompiler -fPIC cunusht/c/pointing.cpp cunusht/c/pointing.cu
 
 srun python3 -m notebook --port=1234 --ip=$hostname
 
