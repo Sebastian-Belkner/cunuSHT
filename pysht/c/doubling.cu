@@ -135,28 +135,49 @@ void CUdoubling_1D(
     printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 }
 
+template <typename Scalar>
+__global__ void compute_doubling_spin0_contig_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
+    //idx is nphi of doubled map (idx = nphi)
+    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t nphihalf = nphi / 2;
+    const size_t dtheta = 2 * ntheta-2;
+
+    if (idx < nphi) {
+        for (int ringi = 0; ringi < dtheta; ringi++) {
+            if (ringi < ntheta) {
+                doubling1D[idx * dtheta + ringi] = synth1D[idx * ntheta + ringi];
+            } 
+            else {
+                if (idx<nphihalf) {
+                    doubling1D[idx * dtheta + ringi] = synth1D[ntheta*(nphi/2)+ntheta + idx * ntheta - 2 + (ntheta-ringi)];
+                } else {
+                    doubling1D[idx * dtheta + ringi] = synth1D[(idx-nphihalf) * ntheta + ntheta - 2 + (ntheta-ringi)];
+                }
+            }
+        }
+    }
+}
+
+template <typename Scalar>
+void CUdoubling_contig_1D(
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
+    const size_t nring,
+    const size_t nphi,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_doubling1D) {
+
+    const int threadsPerBlock = 256;
+    int blocksPerGrid = (nphi + threadsPerBlock - 1) / threadsPerBlock;
+    compute_doubling_spin0_contig_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_doubling1D.data());
+    cudaDeviceSynchronize();
+    cudaError_t errSync  = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+    if (errSync != cudaSuccess) 
+    printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+    if (errAsync != cudaSuccess)
+    printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+}
+
 NB_MODULE(dopy, m) {
-    // m.def("CUdoubling_2D",
-    //     &CUdoubling_2D<double>,
-    //     "synth2D"_a.noconvert(),
-    //     "nring"_a.noconvert(),
-    //     "nphi"_a.noconvert(),
-    //     "outarr_doubling2D"_a.noconvert()
-    // );
-    // m.def("CUdoubling_2Dto1D",
-    //     &CUdoubling_cparr1D<double>,
-    //     "synth1D"_a.noconvert(),
-    //     "nring"_a.noconvert(),
-    //     "nphi"_a.noconvert(),
-    //     "outarr_doubling1D"_a.noconvert()
-    // );
-    m.def("CUdoubling_1D",
-        &CUdoubling_1D<double>,
-        "synth1D"_a.noconvert(),
-        "nring"_a.noconvert(),
-        "nphi"_a.noconvert(),
-        "outarr_doubling1D"_a.noconvert()
-    );
     m.def("CUdoubling_1D",
         &CUdoubling_1D<float>,
         "synth1D"_a.noconvert(),
@@ -164,15 +185,36 @@ NB_MODULE(dopy, m) {
         "nphi"_a.noconvert(),
         "outarr_doubling1D"_a.noconvert()
     );
+    m.def("CUdoubling_1D",
+        &CUdoubling_1D<double>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_doubling1D"_a.noconvert()
+    );
+    m.def("CUdoubling_contig_1D",
+        &CUdoubling_contig_1D<float>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_doubling1D"_a.noconvert()
+    );
+    m.def("CUdoubling_contig_1D",
+        &CUdoubling_contig_1D<double>,
+        "synth1D"_a.noconvert(),
+        "nring"_a.noconvert(),
+        "nphi"_a.noconvert(),
+        "outarr_doubling1D"_a.noconvert()
+    );
     m.def("CUadjoint_doubling_1D",
-        &CUadjoint_doubling_1D<double>,
+        &CUadjoint_doubling_1D<float>,
         "synth1D"_a.noconvert(),
         "nring"_a.noconvert(),
         "nphi"_a.noconvert(),
         "outarr_adjoint_doubling1D"_a.noconvert()
     );
     m.def("CUadjoint_doubling_1D",
-        &CUadjoint_doubling_1D<float>,
+        &CUadjoint_doubling_1D<double>,
         "synth1D"_a.noconvert(),
         "nring"_a.noconvert(),
         "nphi"_a.noconvert(),

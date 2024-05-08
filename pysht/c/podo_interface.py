@@ -39,6 +39,9 @@ def Cdoubling_ptrs(pointings, nring, nphi):
 def Cdoubling_1D(synth1D, nring, nphi, out):
     dopy.CUdoubling_1D(synth1D, nring, nphi, out)
     
+def Cdoubling_contig_1D(synth1D, nring, nphi, out):
+    dopy.CUdoubling_contig_1D(synth1D, nring, nphi, out)
+    
 def Cdoubling_cparr2D(synth2D, nring, nphi, out):
     dopy.CUdoubling_cparr2D(synth2D, nring, nphi, out)
     
