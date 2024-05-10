@@ -1,3 +1,5 @@
 pyCUDA
 SHTns
 DUCC
+lenspyx
+nanobind

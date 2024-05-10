@@ -15,7 +15,7 @@ runinfos = [
     # ("CPU", "duccnufft"),
     ("GPU", "cufinufft")
     ]
-epsilons = [1e-6]
+epsilons = [1e-4]
 # lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
 lmaxs = [256*int(sys.argv[1])-1]
 phi_lmaxs = [lmax for lmax in lmaxs]

@@ -1,4 +1,4 @@
-module load python cuda; source $cunushtenv; cd cunusht/c/
+module load python cuda; source $pyshtenv; cd cunusht/c/
 
 nvcc  -o assocLeg.so -shared -Xcompiler -fPIC assocLeg.cu
 nvcc  -o cunusht/c/pointing.so -shared -Xcompiler -fPIC cunusht/c/pointing.cpp cunusht/c/pointing.cu
@@ -14,20 +14,6 @@ export CUDA_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0
 export LD_LIBRARY_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0/lib64
 
 
-to run profiling:
-    add decorator @profile to the function
-    run kernprof -l -v script.py
-    to run the script with the profiler
-    python -m cProfile -o output.pstats script.py
-    to visualize the output
-    snakeviz output.pstats
-    or
-    pyprof2calltree -i output.pstats -k
-    
-
-To profile:
- 1. `kernprof -l gclm2lenmap_GPU.py'`
- 2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"
 
 
 ## Rusty @ Simons
@@ -40,14 +26,6 @@ module load python gcc cuda
 ./start_jupyter (don't miss half the token..)
 connect via VS Code kernel
 ```
-
-## profile
-
-to profile your code with python,
-
-To profile this:
- 1. `kernprof -l gclm2lenmap_GPU.py'`
- 2. `python3 -m line_profiler -rmt "gclm2lenmap_GPU.py.lprof"`
 
 
 ## Ygdrassil

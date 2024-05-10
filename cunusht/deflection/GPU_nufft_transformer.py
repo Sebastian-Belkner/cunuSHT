@@ -4,6 +4,11 @@ import os, sys
 from lenspyx.utils_hp import Alm, alm2cl, almxfl, alm_copy
 from lenspyx.remapping.utils_angles import d2ang
 
+import jax
+jax.config.update("jax_enable_x64", True)
+from jax import grad, vmap
+import jax.numpy as jnp
+
 import cupy as cp
 import time
 import healpy as hp
@@ -211,18 +216,21 @@ class GPU_cufinufft_transformer:
     # @timing_decorator
     def plan(self, epsilon, nuFFTtype=1):
         "nuFFT dtype real"
-        print('waiting before setting plans')
 
-        FFT_dtype = cp.complex128 #if epsilon>1e-6 else cp.complex128
+        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
         _C = cp.empty(self.nuFFTshape, dtype=FFT_dtype)
-        self.FFTplan = get_fft_plan(_C, axes=(0, 1), value_type='C2C')
+        print("shape plan: {}".format(self.nuFFTshape))
+        self.FFTplan = get_fft_plan(cp.ascontiguousarray(_C), axes=(0, 1), value_type='C2C')
         cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
 
-  
-        nuFFT_dtype = cp.complex128 #if epsilon>1e-6 else cp.complex128
-        self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype)
-        print('waiting after nuFFT plan')
-        # time.sleep(5)
+        nuFFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        if self.nuFFTtype == 1:
+            self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, -1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25)
+        elif self.nuFFTtype == 2:
+            self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25)
+        
+            
+        # self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.2)
     
     @debug_decorator
     # @timing_decorator
@@ -242,7 +250,16 @@ class GPU_cufinufft_transformer:
     # @shape_decorator
     def synthesis(self, alm, out, lmax, mmax, nthreads):
         self.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
-        return out
+        return out # np.array(out.get())
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def synthesis_(self, alm, lmax, mmax, nthreads):
+        return self.synthesis_jnp(alm, lmax=lmax, mmax=mmax, nthreads=nthreads)
+
+    def grad_synthesis(self, alm, out, lmax, mmax, nthreads):
+        return grad(self.synthesis_)(alm, out, lmax, mmax, nthreads)
     
     @debug_decorator
     @timing_decorator
@@ -266,23 +283,31 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def nuFFT2d2(self, fc, x, y, epsilon, map_out=None):
+        # _ = cufinufft.nufft2d1(data=_d, x=pointing_theta, y=pointing_phi, n_modes=(2*self.ntheta_CAR-2,self.nphi_CAR), isign=-1, eps=epsilon)
+        # fc = self.nuFFT2d1(_d, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=_x, y=_y, epsilon=epsilon)
         if self.nuFFTtype:
             self.nuFFTplan.setpts(x, y, None)
-            self.nuFFTplan.execute(fc, out=map_out)
+            return self.nuFFTplan.execute(fc) #out=map_out
         else:
-            cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon, out=map_out)
+            map_out = cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon) #out=map_out
         return map_out
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
     def nuFFT2d1(self, pointmap, nmodes, x, y, epsilon, fc_out=None): #.reshape(self.geom.nph[0],-1).T.flatten()
-        return cufinufft.nufft2d1(data=pointmap, x=x, y=y, n_modes=nmodes, isign=-1, eps=epsilon)
+        if self.nuFFTtype:
+            self.nuFFTplan.setpts(x, y, None)
+            return self.nuFFTplan.execute(pointmap)
+        else:  
+            return cufinufft.nufft2d1(data=pointmap, x=x, y=y, n_modes=nmodes, isign=-1, eps=epsilon)
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
     def doubling(self, CARmap, ntheta_dCAR, nphi_dCAR, CARdmap):
+        print(f"dtypes: {CARmap.dtype}, {ntheta_dCAR}, {nphi_dCAR}, {CARdmap.dtype}")
+        print(f"values: {CARmap}, {ntheta_dCAR}, {nphi_dCAR}, {CARdmap}")
         # podo.Cdoubling_1D(CARmap, ntheta_dCAR, nphi_dCAR, CARdmap)
         podo.Cdoubling_contig_1D(CARmap, self.ntheta_CAR, nphi_dCAR, CARdmap)
         return CARdmap   
@@ -298,82 +323,40 @@ class GPU_cufinufft_transformer:
     def synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
         """expects nuFFT type 2
         """
-        FFT_dtype = cp.complex128 #if epsilon>1e-6 else cp.complex128
-        nuFFT_dtype = cp.complex128
-        pointmap = pointmap.astype(np.complex128)
+        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        # FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        pointmap = pointmap.astype(cp.float32 if epsilon>1e-6 else cp.float64) 
         
         pointing_theta, pointing_phi = loc[0], loc[1]
+        # res = self.grad_synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        # print(f"grad synthesis: {res}")
         self.synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)
         del alm
         
         self.doubling(self.CARmap, self.ntheta_dCAR, self.nphi_dCAR, self.CARdmap)
-        # self.doubling(self.CARmap.reshape(self.nphi_CAR,-1).T.flatten(), self.ntheta_dCAR, self.nphi_dCAR, self.CARdmap)
-        cp.cuda.runtime.deviceSynchronize()
         del self.CARmap
         
-        # t0, ti = self.timer.reset()
-        # _C = cp.ascontiguousarray(self.CARdmap.reshape(self.nphi_dCAR,-1).astype(FFT_dtype)) # cp.ascontiguousarray(self.CARdmap.reshape(self.ntheta_dCAR,-1).T.astype(FFT_dtype))
         _C = self.CARdmap.reshape(self.nphi_dCAR,-1).astype(FFT_dtype)
         cp.cuda.runtime.deviceSynchronize()
-        # self.timer.add('ascontiguousarray')
-        # del self.CARdmap
-        # self.timer.set(t0, ti)
-        # t0, ti = self.timer.reset()
-        # cp.cuda.runtime.deviceSynchronize()
-        # fc = cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
-        # del self.FFTplan
-        
-        # self.timer.add('C2C')
-        # del _C
-        # self.timer.set(t0, ti)
         fc = self.C2C(_C).astype(nuFFT_dtype)
         
+        self.nuFFT2d2(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon, pointmap)
 
-        # t0, ti = self.timer.reset()
-         #if epsilon>1e-6 else cp.complex128
-        # cp.cuda.runtime.deviceSynchronize()
-        # _fc = cufft.fftshift(fc, axes=(0,1))
-        # _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=nuFFT_dtype)
-        # cp.cuda.runtime.deviceSynchronize()
-        # self.timer.add('ascontiguousarray')
-        # del fc
-        # self.timer.set(t0, ti)
-        
-        if True:
-            self.nuFFT2d2(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon, pointmap)
-        else:
-            if self.nuFFTtype:
-                t0, ti = self.timer.reset()
-                cp.cuda.runtime.deviceSynchronize()
-                self.nuFFTplan.setpts(pointing_phi, pointing_theta, None)
-                cp.cuda.runtime.deviceSynchronize()
-                self.timer.add('nuFFT - set points')
-                cp.cuda.runtime.deviceSynchronize()
-                pointmap = self.nuFFTplan.execute(_fc)
-        
-                cp.cuda.runtime.deviceSynchronize()
-                self.timer.add('nuFFT - exec')
-                self.timer.set(t0, ti)
         return pointmap
     
     @timing_decorator
     def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
         """expects nuFFT type 1
         """
-        pointing_theta, pointing_phi = loc[0], loc[1]
-       
-        if self.planned:
-            # _ = cufinufft.nufft2d1(data=_d, x=pointing_theta, y=pointing_phi, n_modes=(2*self.ntheta_CAR-2,self.nphi_CAR), isign=-1, eps=epsilon)
-            # fc = self.nuFFT2d1(_d, nmodes=(2*self.ntheta_CAR-2,self.nphi_CAR), x=_x, y=_y, epsilon=epsilon)
-            _d = pointmap.astype(np.complex64)
-            t0, ti = self.timer.reset()
-            self.nuFFTplan.setpts(pointing_theta, pointing_phi, None)
-            self.timer.add('nuFFT - set points')
-            pointmap = self.nuFFTplan.execute(_d)
-            self.timer.add('nuFFT - exec')
-            self.timer.set(t0, ti)
+        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         
-        CARdmap = self.iC2C(cufft.fftshift(_d, axes=(1,2))).astype(np.complex128)
+        pointing_theta, pointing_phi = loc[0], loc[1]
+        
+        fc = self.nuFFT2d1(pointmap, nmodes=(self.ntheta_dCAR,self.nphi_dCAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
+        
+        CARdmap = self.iC2C(cufft.fftshift(pointmap, axes=(1,2))).astype(np.complex128)
         
         CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
         synthmap = self.adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
@@ -421,16 +404,12 @@ class GPU_cufinufft_transformer:
             del dlm_scaled
         else:
             pointing_theta, pointing_phi = ptg.T
-        pointing_dtype = cp.float64 #if self.single_prec else cp.float64
-        pointing_theta = cp.ascontiguousarray(self._ensure_dtype(pointing_theta, self.single_prec, isreal=True), dtype=pointing_dtype)
-        pointing_phi = cp.ascontiguousarray(self._ensure_dtype(pointing_phi, self.single_prec, isreal=True), dtype=pointing_dtype)
-        
-        # pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
-        # pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
+        pointing_dtype = cp.float32 if self.single_prec else cp.float64
+        # pointing_theta = cp.ascontiguousarray(self._ensure_dtype(pointing_theta, self.single_prec, isreal=True), dtype=pointing_dtype)
+        # pointing_phi = cp.ascontiguousarray(self._ensure_dtype(pointing_phi, self.single_prec, isreal=True), dtype=pointing_dtype)
+        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
+        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
        
-        t0, ti = self.timer.reset()
-        self.timer.set(t0, ti)
-        print('waiting after pointing')
         lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbosity=verbosity)
         
         result = lenmap[0].get()
@@ -487,6 +466,95 @@ class GPU_cufinufft_transformer:
         del lenmap, pointing_theta, pointing_phi
         return gclm
     
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def nuFFT2d2_jnp(self, fc, x, y, epsilon, map_out=None):
+        x = cp.array(np.array(x))
+        y = cp.array(np.array(y))
+        if self.nuFFTtype:
+            self.nuFFTplan.setpts(x, y, None)
+            return jnp.array(self.nuFFTplan.execute(fc).get()) #out=map_out
+        else:
+            return jnp.array(cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon).get())  #out=map_out
+
+    def synthesis_general_jnp(self, lmax, mmax, alm, loc0, loc1, epsilon):
+        """expects nuFFT type 2
+        """
+        nthreads = 10
+        print(lmax, mmax, epsilon)
+        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        # FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
+        
+        pointing_theta, pointing_phi = loc0, loc1
+        self.CARmap = self.synthesis_(alm, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        del alm
+        
+        self.doubling(cp.array(self.CARmap), self.ntheta_dCAR, self.nphi_dCAR, self.CARdmap)
+        del self.CARmap
+        
+        _C = self.CARdmap.reshape(self.nphi_dCAR,-1).astype(FFT_dtype)
+        fc = self.C2C(_C).astype(nuFFT_dtype)
+        
+        return self.nuFFT2d2_jnp(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon)
+    
+    @timing_decorator_close
+    def gclm2lenmap_grad(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbosity=1, execmode='normal'):
+        """
+        expects nuFFT type 2
+        Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
+        No h2d needed between them.
+        
+        gclm and dlm are assumed to be on host, will be transfered in _setup().
+        Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call.
+        """
+        self.timer.start('gclm2lenmap()')
+        if self.nuFFTtype:
+            assert epsilon == self.epsilon if epsilon is not None else True==True, "epsilon must be the same as in the plan"
+            epsilon = self.epsilon
+        else:
+            assert epsilon is not None, "epsilon must be provided if not planned"
+            self.epsilon = epsilon
+        self.deflectionlib.epsilon = epsilon
+        self.single_prec = True if epsilon > 1e-6 else False
+        
+        
+        # @timing_decorator
+        def setup(self, nthreads):
+            assert execmode in ['normal', 'debug', 'timing']
+            print('Running in {} execution mode'.format(execmode))
+            self.nthreads = self.nthreads if nthreads is None else nthreads
+            self.execmode = execmode
+            self.deflectionlib.execmode = self.execmode
+
+        setup(self, nthreads)
+        
+        if ptg is None:
+            assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
+            del dlm_scaled
+        else:
+            pointing_theta, pointing_phi = ptg.T
+        pointing_dtype = cp.float32 if self.single_prec else cp.float64
+        # pointing_theta = cp.ascontiguousarray(self._ensure_dtype(pointing_theta, self.single_prec, isreal=True), dtype=pointing_dtype)
+        # pointing_phi = cp.ascontiguousarray(self._ensure_dtype(pointing_phi, self.single_prec, isreal=True), dtype=pointing_dtype)
+        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
+        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
+        lenmap_grad = grad(self.synthesis_general_jnp, argnums=(2))
+        print(gclm.shape, pointing_theta.shape)
+        lenmap_grad = vmap(lenmap_grad, in_axes=(None, None, 0, None, None, None))(float(lmax), float(mmax), jnp.array(np.atleast_2d(gclm.get())), jnp.array(pointing_theta.get()), jnp.array(pointing_phi.get()), float(self.epsilon))
+        
+        result = lenmap_grad[0].get()
+        # self.timer.add('Transfer <-')
+        
+        if self.execmode == 'debug':
+            print("::debug:: Returned component results")
+            return self.ret
+        del lenmap_grad, pointing_theta, pointing_phi
+        return result
+        
+
     def synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
         pointing_theta, pointing_phi = loc[0], loc[1]        
         self.synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)

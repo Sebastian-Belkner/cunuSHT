@@ -37,7 +37,7 @@ def timing_decorator_close(func):
         args[0].timer.set(t0, ti)
         if args[0].execmode == 'timing':
             args[0].timer.close(args[0].__class__.__name__)
-            dirname = os.path.dirname(cunusht.__file__)[:-5]+'/test/benchmark/timings/{}/{}/'.format(args[0].__class__.__name__, func.__name__)
+            dirname = os.path.dirname(cunusht.__file__)[:-7]+'/test/benchmark/timings/{}/{}/'.format(args[0].__class__.__name__, func.__name__)
             if not os.path.exists(dirname):
                 os.makedirs(dirname)
             args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}".format(kwargs['lmax'], args[0].epsilon))

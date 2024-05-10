@@ -42,14 +42,13 @@ class GPU_SHTns_transformer():
 
 
     @shape_decorator
-    def synthesis(self, gclm: np.ndarray, lmax, mmax, mode=None, nthreads=None):
+    def synthesis_jnp(self, gclm: np.ndarray, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        gclm = np.atleast_2d(gclm)
-        return np.atleast_2d(self.constructor.synth(gclm).flatten())
+        return self.constructor.synth(gclm).flatten()
     
     def synthesis_cupy(self, gclm, out, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
