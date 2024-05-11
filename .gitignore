@@ -6,6 +6,7 @@ reconstruction/
 TESTSCRATCH/
 CMakeFiles/
 timings/
+output/*
 
 # protect notebooks
 first_steps/
