@@ -15,9 +15,10 @@ runinfos = [
     # ("CPU", "duccnufft"),
     ("GPU", "cufinufft")
     ]
-epsilons = [1e-4]
+epsilons = [1e-10]
 # lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
 lmaxs = [256*int(sys.argv[1])-1]
+runinfos = [("GPU", "cufinufft")] if sys.argv[2] == 'GPU' else [("CPU", "lenspyx")]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
@@ -30,20 +31,22 @@ for epsilon in epsilons:
             geominfo = ('gl',{'lmax':lmax})
             lenjob_geominfo = ('gl',{'lmax':phi_lmax})
             lldlm = np.arange(0,phi_lmax+1)
-            # synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
-            # philm = synunl.get_sim_phi(0, space='alm')
-            # toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
-            # toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
-            nalm_unl = hp.Alm.getsize(lmax, mmax=lmax)
-            toyunllm = np.array([np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6])
-            toydlm = np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6
+            if True:
+                synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
+                philm = synunl.get_sim_phi(0, space='alm')
+                toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
+                toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
+            else:
+                nalm_unl = hp.Alm.getsize(lmax, mmax=lmax)
+                toyunllm = np.array([np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6])
+                toydlm = np.random.rand(nalm_unl)*1e-6 + 1j*np.random.rand(nalm_unl)*1e-6
 
             backend = runinfo[0]
             defres.update({backend: {}}) if backend not in defres.keys() else None
             solver = runinfo[1]
             defres[backend].update({solver : None}) if solver not in defres[backend].keys() else None
             
-            t = cunusht.get_transformer(solver, backend)
+            t = cunusht.get_transformer(backend, solver)
             if backend == 'CPU':
                 if solver == 'lenspyx':
                     kwargs = {

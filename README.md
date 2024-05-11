@@ -1,3 +1,5 @@
+![animated_swirls.gif](animated_swirls.gif)
+
 # cunuSHT
 general (adjoint) spin-n SHTs.
 

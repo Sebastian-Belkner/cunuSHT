@@ -69,13 +69,16 @@ class CPU_SHT_DUCC_transformer():
         return self.adjoint_synthesis(m.copy(), 0, lmax, mmax, nthreads, **kwargs).squeeze()
 
 class CPU_SHT_SHTns_transformer():
+    """
+    NOTUSED: This class is currently not used per default. CPU is run on DUCC.
+    """
     def __init__(self, geominfo):
         self.set_geometry(geominfo)
 
     def set_geometry(self, geominfo):
         if geominfo[0] == 'cc':
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['mmax']))
-            self.constructor.set_grid(flags=shtns.SHT_ALLOW_GPU + shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
+            self.constructor.set_grid(flags=shtns.SHT_THETA_CONTIGUOUS, nlat=int(geominfo[1]['ntheta']), nphi=int(geominfo[1]['nphi']))
             geominfo[1].pop('lmax')
             geominfo[1].pop('mmax')
         else:

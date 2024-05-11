@@ -58,7 +58,7 @@ class deflection:
     # @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def dlm2pointing(self, dlm_scaled, mmax_dlm, nthreads, verbosity, pointing_theta, pointing_phi):
+    def dlm2pointing(self, dlm_scaled, mmax_dlm, nthreads, verbose, pointing_theta, pointing_phi):
         if False:
             # FIXME this is only true for dlm, not dlm_scaled
             dlm_scaled = np.atleast_2d(dlm_scaled)
@@ -72,7 +72,7 @@ class deflection:
             sig_d_amin = sig_d / np.pi * 180 * 60
             if sig_d >= 0.01:
                 print('deflection std is %.2e amin: this is really too high for something sensible'%sig_d_amin)
-            elif verbosity:
+            elif verbose:
                 print('deflection std is %.2e amin' % sig_d_amin)
         
         # @debug_decorator
@@ -115,6 +115,7 @@ class GPU_cufinufft_transformer:
         """
         self.timer = timer
         self.timer.reset_ti()
+        self.timer.delete(self.__class__.__name__)
         self.timer.start(self.__class__.__name__)
         if nuFFTtype:
             assert epsilon is not None, "epsilon must be provided if planned is True"
@@ -217,32 +218,31 @@ class GPU_cufinufft_transformer:
     def plan(self, epsilon, nuFFTtype=1):
         "nuFFT dtype real"
 
-        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        # FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        FFT_dtype = cp.float64
         _C = cp.empty(self.nuFFTshape, dtype=FFT_dtype)
         print("shape plan: {}".format(self.nuFFTshape))
         self.FFTplan = get_fft_plan(cp.ascontiguousarray(_C), axes=(0, 1), value_type='C2C')
         cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
 
         nuFFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
-        if self.nuFFTtype == 1:
-            self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, -1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25)
-        elif self.nuFFTtype == 2:
-            self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25)
-        
+        # nuFFT_dtype = cp.float64
+        isign = -1 if self.nuFFTtype == 1 else 1
+        self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, isign, nuFFT_dtype, gpu_method=2, gpu_sort=1)#, gpu_kerevalmeth=0)#, upsampfac=1.5)
+        # print("waiting after nufftplan - check memory now")
+        # time.sleep(5)
             
-        # self.nuFFTplan = Plan(nuFFTtype, self.nuFFTshape[-2:], 1, epsilon, 1, nuFFT_dtype, gpu_method=1, gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.2)
-    
     @debug_decorator
     # @timing_decorator
     # @shape_decorator
-    def dlm2pointing(self, dlm_scaled, mmax_dlm, verbosity, nthreads):
+    def dlm2pointing(self, dlm_scaled, mmax_dlm, verbose, nthreads):
         # TODO let's keep this double precision for now, and check later
         # pointing_theta = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
         # pointing_phi = cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.float32) if self.deflectionlib.single_prec else cp.zeros((self.deflectionlib.geom.npix()), dtype=cp.double)
         pointing_theta = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
         pointing_phi = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
         
-        self.deflectionlib.dlm2pointing(dlm_scaled, mmax_dlm=mmax_dlm, nthreads=nthreads, verbosity=verbosity, pointing_theta=pointing_theta, pointing_phi=pointing_phi)
+        self.deflectionlib.dlm2pointing(dlm_scaled, mmax_dlm=mmax_dlm, nthreads=nthreads, verbose=verbose, pointing_theta=pointing_theta, pointing_phi=pointing_phi)
         return cp.array([pointing_theta, pointing_phi])       
     
     @debug_decorator
@@ -306,8 +306,6 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def doubling(self, CARmap, ntheta_dCAR, nphi_dCAR, CARdmap):
-        print(f"dtypes: {CARmap.dtype}, {ntheta_dCAR}, {nphi_dCAR}, {CARdmap.dtype}")
-        print(f"values: {CARmap}, {ntheta_dCAR}, {nphi_dCAR}, {CARdmap}")
         # podo.Cdoubling_1D(CARmap, ntheta_dCAR, nphi_dCAR, CARdmap)
         podo.Cdoubling_contig_1D(CARmap, self.ntheta_CAR, nphi_dCAR, CARdmap)
         return CARdmap   
@@ -320,13 +318,15 @@ class GPU_cufinufft_transformer:
         return CARmap
 
     @timing_decorator
-    def synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+    def synthesis_general(self, lmax, mmax, alm, loc, epsilon, nthreads, pointmap, verbose):
         """expects nuFFT type 2
         """
-        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        # FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        FFT_dtype = cp.float64
         # FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        pointmap = pointmap.astype(cp.float32 if epsilon>1e-6 else cp.float64) 
+        pointmap = pointmap.astype(cp.float64)
+        # pointmap = pointmap.astype(cp.float32 if epsilon>1e-6 else cp.float64) 
         
         pointing_theta, pointing_phi = loc[0], loc[1]
         # res = self.grad_synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)
@@ -346,7 +346,7 @@ class GPU_cufinufft_transformer:
         return pointmap
     
     @timing_decorator
-    def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+    def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbose):
         """expects nuFFT type 1
         """
         FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
@@ -368,7 +368,7 @@ class GPU_cufinufft_transformer:
         return alm
     
     @timing_decorator_close
-    def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbosity=1, execmode='normal'):
+    def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbose=1, execmode='normal'):
         """
         expects nuFFT type 2
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
@@ -377,6 +377,7 @@ class GPU_cufinufft_transformer:
         gclm and dlm are assumed to be on host, will be transfered in _setup().
         Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call.
         """
+        self.timer.delete('gclm2lenmap()')
         self.timer.start('gclm2lenmap()')
         if self.nuFFTtype:
             assert epsilon == self.epsilon if epsilon is not None else True==True, "epsilon must be the same as in the plan"
@@ -400,7 +401,7 @@ class GPU_cufinufft_transformer:
         
         if ptg is None:
             assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbose, nthreads)
             del dlm_scaled
         else:
             pointing_theta, pointing_phi = ptg.T
@@ -410,26 +411,28 @@ class GPU_cufinufft_transformer:
         pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
        
-        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbosity=verbosity)
+        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=(pointing_theta, pointing_phi), epsilon=self.epsilon, nthreads=nthreads, pointmap=lenmap, verbose=verbose)
         
         result = lenmap[0].get()
         # self.timer.add('Transfer <-')
         
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
+            self.timer.delete('gclm2lenmap()')
             return self.ret
         del lenmap, pointing_theta, pointing_phi
+        self.timer.delete('gclm2lenmap()')
         return result
 
     @timing_decorator_close
-    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, epsilon=None, nthreads:int=None, ptg=None, verbosity=1, execmode='normal'):
+    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm_out:cp.ndarray, lmax:int, mmax:int, epsilon=None, nthreads:int=None, ptg=None, verbose=1, execmode='normal'):
         """
             Note:
                 expects nuFFT type 1
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
                 lenmap must be theta contiguous
         """
-        
+        self.timer.start("lenmap2gclm()")
         self._assert_shape(lenmap, gclm_out, dlm_scaled, ndim=2, nbatch=1)
         self._assert_type(lenmap, gclm_out, dlm_scaled)
         self._assert_dtype(lenmap, gclm_out, dlm_scaled)
@@ -445,7 +448,7 @@ class GPU_cufinufft_transformer:
         
         if ptg is None:
             assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbose, nthreads)
         else:
             pointing_theta, pointing_phi = ptg.T
         pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True)
@@ -458,12 +461,13 @@ class GPU_cufinufft_transformer:
         self.timer.set(t0, ti)
         
         ptg = cp.array([pointing_theta, pointing_phi])
-        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, self.epsilon, nthreads, gclm_out, verbosity)
+        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap, ptg, self.epsilon, nthreads, gclm_out, verbose)
 
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
             return self.ret
         del lenmap, pointing_theta, pointing_phi
+        self.timer.delete("lenmap2gclm()")
         return gclm
     
     @debug_decorator
@@ -500,7 +504,7 @@ class GPU_cufinufft_transformer:
         return self.nuFFT2d2_jnp(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon)
     
     @timing_decorator_close
-    def gclm2lenmap_grad(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbosity=1, execmode='normal'):
+    def gclm2lenmap_grad(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, nthreads=None, epsilon=None, polrot=True, lenmap=None, verbose=1, execmode='normal'):
         """
         expects nuFFT type 2
         Same as gclm2lenmap, but using cupy allocated intermediate results (synth, doubling, c2c, nuFFt),
@@ -532,7 +536,7 @@ class GPU_cufinufft_transformer:
         
         if ptg is None:
             assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbosity, nthreads)
+            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbose, nthreads)
             del dlm_scaled
         else:
             pointing_theta, pointing_phi = ptg.T
@@ -555,7 +559,7 @@ class GPU_cufinufft_transformer:
         return result
         
 
-    def synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+    def synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbose):
         pointing_theta, pointing_phi = loc[0], loc[1]        
         self.synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax, nthreads=nthreads)
         del alm
@@ -576,7 +580,7 @@ class GPU_cufinufft_transformer:
             self.nuFFTplan.setpts(pointing_phi, pointing_theta, None)
             return self.nuFFTplan.execute(_fc)
         
-    def adjoint_synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbosity):
+    def adjoint_synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, nthreads, alm, verbose):
         pointing_theta, pointing_phi = loc[0], loc[1]
        
         if self.planned:

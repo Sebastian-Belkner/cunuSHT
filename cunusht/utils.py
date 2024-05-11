@@ -39,8 +39,12 @@ class timer:
         Args:
             key (_type_): _description_
         """        
-        assert key not in self.t0s.keys()
+        assert key not in self.t0s.keys(), f"{key} already in timer dict t0s"
         self.t0s[key] = time.time()
+        
+    def delete(self, key):
+        if key in self.t0s.keys():
+            self.t0s.pop(key) 
 
     def close(self, key):
         """Closes the time tracker and adds the elapsed time to the key

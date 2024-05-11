@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-
-from cunusht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
 from cunusht.deflection.CPU_nufft_transformer import CPU_finufft_transformer, CPU_DUCCnufft_transformer, CPU_Lenspyx_transformer
-
 from cunusht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
-from cunusht.sht.GPU_sht_transformer import GPU_SHTns_transformer
+
 from cunusht.visitor import transform, transform3d
 from cunusht.geometry import Geom
 
@@ -31,6 +28,7 @@ class CPU_nuFFT_Transformer:
 
 class GPU_SHT_Transformer:
     def build(self, solver):
+        from cunusht.sht.GPU_sht_transformer import GPU_SHTns_transformer
         if solver in ['shtns']:
             return GPU_SHTns_transformer
         else:
@@ -38,6 +36,7 @@ class GPU_SHT_Transformer:
         
 class GPU_nuFFT_Transformer:
     def build(self, solver):
+        from cunusht.deflection.GPU_nufft_transformer import GPU_cufinufft_transformer
         if solver in ['cufinufft']:
             return GPU_cufinufft_transformer#(shttransformer_desc='shtns')
         else:
@@ -61,7 +60,10 @@ def set_transformer(transf):
     assert 0, "implement if needed"
 
 
-def get_transformer(solver, backend, mode='nuFFT'):
+def get_transformer(backend, solver='default', mode='nuFFT'):
+    if solver == 'default':
+        solver = 'lenspyx' if backend == 'CPU' else "cufinufft"
+
     if backend in ['CPU']:
         if mode in ['SHT']:
             return transform(solver, CPU_SHT_Transformer())
@@ -75,9 +77,9 @@ def get_transformer(solver, backend, mode='nuFFT'):
         elif mode in ['nuFFT']:
             return transform(solver, GPU_nuFFT_Transformer())
         else:
-            assert 0, "Mode not found"
+            assert 0, "{mode} mode not found"
     else:
-        assert 0, "Backend not found"
+        assert 0, f"{backend} backend not found"
 
 
 @transform.case(str, CPU_SHT_Transformer)

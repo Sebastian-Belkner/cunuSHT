@@ -55,7 +55,7 @@ except:
 def ducc_sht_mode(gclm, spin):
     gclm_ = np.atleast_2d(gclm)
     return 'GRAD_ONLY' if ((gclm_[0].size == gclm_.size) * (abs(spin) > 0)) else 'STANDARD'
-timer = tim(1, prefix='GPU')
+timer = tim(1, prefix='CPU')
 class deflection:
     def __init__(self, geominfo, shttransformer_desc='ducc', timer_instance=None):
         if timer_instance is None:
@@ -69,7 +69,7 @@ class deflection:
         
         self.shttransformer_desc = shttransformer_desc
         if shttransformer_desc == 'shtns':
-            self.BaseClass = type('GPU_SHTns_transformer', (CPU_SHT_SHTns_transformer,), {})
+            self.BaseClass = type('CPU_SHTns_transformer', (CPU_SHT_SHTns_transformer,), {})
         elif shttransformer_desc == 'ducc':
             self.BaseClass = type('CPU_SHT_DUCC_transformer()', (CPU_SHT_DUCC_transformer,), {})
         else:
@@ -194,19 +194,20 @@ class CPU_DUCCnufft_transformer:
             ValueError: _description_
         """
         self.timer = timer
+        self.timer.delete(self.__class__.__name__)
         self.timer.reset_ti()
         self.timer.start(self.__class__.__name__)
         
         if nuFFTtype:
             assert False, "nuFFTtype mode not supported"
-        self.backend = 'GPU'
+        self.backend = 'CPU'
         self.shttransformer_desc = shttransformer_desc
         self.nuFFTtype = nuFFTtype
         self.execmode = None
         self.timer = timer
         self.ret = {} # This is for execmode='debug'
         
-        # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
+        # Take ducc good_size, but adapt for good size needed by CPU SHTns (nlat must be multiple of 4)
         self.ntheta_CAR = (ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4
         self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
@@ -333,7 +334,7 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     @timing_decorator
     # @shape_decorator        
-    def nuFFT2d1(self, lenmap, ptg, nthreads, epsilon, verbosity, fc):
+    def nuFFT2d1(self, lenmap, ptg, nthreads, epsilon, verbose, fc):
         """assert_shape: batching not supported
         assert dtype: lenmap, fc must be complex
         assert shape: lenmap must be flat (2 * ntheta - 2) * nphi, ptg must be ((2 * ntheta - 2) * nphi, 2), fc must be (2 * ntheta - 2, nphi)
@@ -341,13 +342,13 @@ class CPU_DUCCnufft_transformer:
         return ducc0.nufft.nu2u(
             points=lenmap, coord=ptg, forward=True,
             epsilon=epsilon, nthreads=nthreads,
-            verbosity=verbosity, periodicity=2*np.pi, out=fc, fft_order=True)
+            verbose=verbose, periodicity=2*np.pi, out=fc, fft_order=True)
     
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def nuFFT2d2(self, grid, x, y, epsilon, nthreads, verbosity, out):
-        out = ducc0.nufft.u2nu(grid=grid.T, coord=np.array([y,x]).T, forward=False, epsilon=epsilon, nthreads=nthreads, verbosity=verbosity, periodicity=2*np.pi, fft_order=True)
+    def nuFFT2d2(self, grid, x, y, epsilon, nthreads, verbose, out):
+        out = ducc0.nufft.u2nu(grid=grid.T, coord=np.array([y,x]).T, forward=False, epsilon=epsilon, nthreads=nthreads, verbose=verbose, periodicity=2*np.pi, fft_order=True)
         return out
     
     @debug_decorator
@@ -382,7 +383,7 @@ class CPU_DUCCnufft_transformer:
         dmap = self.doubling(CARmap, ntheta=self.ntheta_CAR, nphi=self.nphi_CAR, spin=spin, out=out)
         out = None
         dmap = self.C2C(dmap, spin, nthreads, out)
-        pointmap = self.nuFFT2d2(grid=dmap, x=pointing_theta, y=pointing_phi, epsilon=epsilon, nthreads=nthreads, verbosity=verbose, out=out)
+        pointmap = self.nuFFT2d2(grid=dmap, x=pointing_theta, y=pointing_phi, epsilon=epsilon, nthreads=nthreads, verbose=verbose, out=out)
         return pointmap
 
     @debug_decorator
@@ -406,7 +407,7 @@ class CPU_DUCCnufft_transformer:
         return alm
 
     @timing_decorator
-    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, epsilon, nthreads, polrot=True, ptg=None, lenmap=None, verbosity=1, execmode=0):
+    def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, epsilon, nthreads, polrot=True, ptg=None, lenmap=None, verbose=1, execmode=0):
         """CPU algorithm for spin-n remapping using duccnufft
             Args:
                 gclm: input alm array, shape (ncomp, nalm), where ncomp can be 1 (gradient-only) or 2 (gradient or curl)
@@ -425,7 +426,7 @@ class CPU_DUCCnufft_transformer:
         sig_d_amin = sig_d / np.pi * 180 * 60
         if sig_d >= 0.01:
             print('deflection std is %.2e amin: this is really too high a value for something sensible'%sig_d_amin)
-        elif verbosity:
+        elif verbose:
             print('deflection std is %.2e amin' % sig_d_amin)
         if dlm.shape[0]==1:
             # FIXME this is to align shape of dlm for the next steps
@@ -454,7 +455,7 @@ class CPU_DUCCnufft_transformer:
         pointing_theta = self._ensure_dtype(pointing_theta)
         pointing_phi = self._ensure_dtype(pointing_phi)
         
-        lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=verbosity)
+        lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=verbose)
         lenmap = self.rotate(lenmap, polrot, spin, nthreads)
         
         if self.execmode == 'debug':
@@ -463,7 +464,7 @@ class CPU_DUCCnufft_transformer:
             return lenmap.real if spin == 0 else lenmap.view(rtype[lenmap.dtype]).reshape((lenmap.size, 2)).T
 
     @timing_decorator
-    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, ptg=None, verbosity=1, execmode='normal'):
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, ptg=None, verbose=1, execmode='normal'):
         self.timer.start('lenmap2gclm()')
         
         self.single_prec = True if epsilon>1e-6 else False
@@ -493,7 +494,7 @@ class CPU_DUCCnufft_transformer:
         pointing_theta = self._ensure_dtype(pointing_theta)
         pointing_phi = self._ensure_dtype(pointing_phi)
         
-        gclm = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm_out, spin), alm=gclm_out, verbose=verbosity)
+        gclm = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm_out, spin), alm=gclm_out, verbose=verbose)
         
         if self.execmode == 'timing':
             self.timer.close('lenmap2gclm()')
@@ -536,26 +537,35 @@ class CPU_DUCCnufft_transformer:
         return m.squeeze()
 
 class CPU_Lenspyx_transformer:
-    def __init__(self, geominfo_deflection, dglm, mmax_dlm, nthreads, verbosity, epsilon, single_prec):
+    def __init__(self, geominfo_deflection, dglm=None, mmax_dlm=None, nthreads=None, verbose=None, epsilon=None, single_prec=None):
         self.timer = timer
+        self.timer.delete(self.__class__.__name__)
         self.timer.reset_ti()
         self.timer.start(self.__class__.__name__)
         self.epsilon = epsilon
         self.lenspyx_geom = get_lenspyxgeom(geominfo_deflection)
-        self.deflectionlib = lenspyx_deflection(
-            lens_geom=self.lenspyx_geom,
-            dglm=dglm,
-            mmax_dlm=mmax_dlm,
-            numthreads=nthreads,
-            verbosity=verbosity,
-            epsilon=epsilon,
-            single_prec=single_prec)
+        if all(var is not None for var in [dglm, mmax_dlm, nthreads, verbose, epsilon, single_prec]):
+            self.setup_lensing(dglm, mmax_dlm, nthreads, verbose, epsilon, single_prec)
+        else:
+            print("Did not set up lensing, as at least one parameter was missing")
         
         self.backend = 'CPU'
         self.execmode = None
         
         self.ret = {}
         self.timer.add('init')
+    
+    def setup_lensing(self, dglm, mmax_dlm, nthreads, verbose, epsilon, single_prec):
+        self.deflectionlib = lenspyx_deflection(
+            lens_geom=self.lenspyx_geom,
+            dglm=dglm,
+            mmax_dlm=mmax_dlm,
+            numthreads=nthreads,
+            verbosity=verbose,
+            epsilon=epsilon,
+            single_prec=single_prec)
+        
+        self.deflectionlib.dlm2pointing = self.dlm2pointing
     
     def _ensure_dtype(self, item):
         if self.deflectionlib.single_prec:
@@ -606,29 +616,39 @@ class CPU_Lenspyx_transformer:
     @timing_decorator
     # @shape_decorator
     @debug_decorator      
-    def dlm2pointing(self):
+    def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14):
+        if 'deflectionlib' in self.__dict__:
+            del self.deflectionlib
+        self.setup_lensing(dlm, mmax_dlm, nthreads, 1, epsilon, single_prec)
+        # print("Note: none of the passed arguments are used in this function. All parameters were set upon intialisation of lenspyx")
         return self.deflectionlib._get_ptg()           
     
     @timing_decorator_close
-    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, execmode='normal'):
-
-        def setup(self, nthreads):
+    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=1, execmode='normal'):
+        if epsilon is None:
+            epsilon = self.epsilon
+            assert epsilon is not None
+        self.single_prec = True if epsilon>1e-6 else False
+        def setup(self, dlm, nthreads, epsilon, mmax, verbose):
             assert execmode in ['normal','debug', 'timing']
             print('Running in {} execution mode'.format(execmode))
             self.execmode = execmode
+            if 'deflectionlib' not in self.__dict__:
+                self.setup_lensing(dlm, mmax, nthreads, verbose, epsilon, self.single_prec)
             self.deflectionlib.execmode = self.execmode
             self.deflectionlib.nthreads = self.nthreads if nthreads is None else nthreads
         
+        setup(self, dlm, nthreads, epsilon, mmax, verbose)
         gclm = self._ensure_complexdtype(gclm)
         gclm = self._ensure_shape(gclm)
         if lenmap is not None:
             lenmap = self._ensure_dtype(lenmap)
             self._assert_precision(lenmap, gclm)
-        setup(self, nthreads)
+        
         
         if ptg is None:
-            ptg = self.dlm2pointing()
-            ptg = np.array(ptg, dtype=np.float64) if not self.deflectionlib.single_prec else np.array(ptg, dtype=np.float32)
+            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon)
+            ptg = np.array(ptg, dtype=np.float64)# if not self.deflectionlib.single_prec else np.array(ptg, dtype=np.float32)
         lenmap = self.synthesis_general(lmax, mmax, gclm, ptg, spin, self.deflectionlib.epsilon, nthreads, ducc_sht_mode(gclm, spin), self.deflectionlib.verbosity)
         if self.execmode == 'debug':
             print("::debug:: returned component results")
@@ -654,7 +674,7 @@ class CPU_Lenspyx_transformer:
         if ptg is None:
             ptg = self.dlm2pointing()
             ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
-        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbosity)
+        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbose)
        
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
@@ -678,11 +698,13 @@ class CPU_Lenspyx_transformer:
         nph = 2 * np.ones(thts.size, dtype=np.uint64)  # I believe at least 2 points per ring
         ofs = 2 * np.arange(thts.size, dtype=np.uint64)
         wt = np.ones(thts.size, dtype=float)
-        geom = Geom(thts.copy(), phis.copy(), nph, ofs, wt)
+        from lenspyx.remapping.utils_geom import Geom as LG
+        geom = LG(thts.copy(), phis.copy(), nph, ofs, wt)
         gclm = np.atleast_2d(gclm)
         lmax = Alm.getlmax(gclm[0].size, mmax)
         if mmax is None: mmax = lmax
-        m = geom.synthesis(gclm, spin, lmax, mmax, self.nthreads, mode=sth_mode)[:, 0::2]
+        nthreads = 10
+        m = geom.synthesis(gclm, spin, lmax, mmax, nthreads, mode=sth_mode)[:, 0::2]
         # could do: complex view trick etc
         if spin and polrot:
             gamma = self._get_gamma()[pixs]
@@ -780,7 +802,7 @@ class CPU_finufft_transformer:
         if self.planned: # planned nufft
             assert ptg is None
             plan = self.make_plan(lmax_unl, spin)
-            values = plan.u2nu(grid=dmap, forward=False, verbosity=self.verbosity)
+            values = plan.u2nu(grid=dmap, forward=False, verbose=self.verbose)
         else:
             ptg = None
             if ptg is None:
@@ -843,13 +865,13 @@ class CPU_finufft_transformer:
         dmap = np.empty((2 * ntheta - 2, nphi), dtype=points.dtype)
         if self.planned:
             plan = self.make_plan(lmax, spin)
-            dmap = plan.nu2u(points=points, out=dmap, forward=True, verbosity=self.verbosity)
+            dmap = plan.nu2u(points=points, out=dmap, forward=True, verbose=self.verbose)
 
         else:
             # perform NUFFT
         
             dmap = ducc0.nufft.nu2u(points=points, coord=ptg, out=dmap, forward=True,
-                                       epsilon=self.epsilon, nthreads=nthreads, verbosity=self.verbosity,
+                                       epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbose,
                                        periodicity=2 * np.pi, fft_order=True)
         # go to position space
         dmap = ducc0.fft.c2c(dmap, axes=(0, 1), forward=False, inorm=2, nthreads=nthreads, out=dmap)
@@ -901,9 +923,9 @@ class CPU_finufft_transformer:
     
     def synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"
-        return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, verbose=self.verbosity)
+        return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, verbose=self.verbose)
     
     def adjoint_synthesis_general(self, lmax, mmax, map, loc, spin, epsilon, nthreads, sht_mode, alm, verbose):
         assert 0, "implement if needed"
-        return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, alm=alm, verbose=self.verbosity)
+        return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=map, loc=loc, spin=spin, epsilon=self.epsilon, nthreads=self.nthreads, mode=sht_mode, alm=alm, verbose=self.verbose)
 

@@ -4,7 +4,7 @@ import ducc0
 from ducc0.misc import GL_thetas, GL_weights
 from ducc0.fft import good_size
 
-from lenspyx import cachers
+from cunusht import cacher
 
 def st2mmax(spin, tht, lmax):
     r"""Converts spin, tht and lmax to a maximum effective m, according to libsharp paper polar optimization formula Eqs. 7-8
@@ -52,7 +52,7 @@ class Geom:
         self.ofs = ringstart[argsort].astype(np.uint64)
 
         self._cis = False
-        self.cacher = cachers.cacher_mem(safe=False)
+        self.cacher = cacher.cacher_mem(safe=False)
         self.sht_tr = 4
         self.verbosity = 1
 
@@ -328,7 +328,7 @@ class pbounds:
 
 class pbdGeometry:
     def __init__(self, geom, pbound):
-        """Gometry with additional info on longitudinal cuts
+        """Geometry with additional info on longitudinal cuts
         """
         self = geom
         self.pbound = pbound
