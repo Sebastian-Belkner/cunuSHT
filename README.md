@@ -1,5 +1,7 @@
-![animated_swirls.gif](animated_swirls.gif)
-
+<center>
+<img src="animated_jupiter_mollview.gif" width="550" height="400"/>
+<img src="animated_deffield_zoom.gif" width="550" height="400"/>
+</center>
 # cunuSHT
 general (adjoint) spin-n SHTs.
 
