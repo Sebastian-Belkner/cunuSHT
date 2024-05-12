@@ -1,6 +1,5 @@
 <center>
-<img src="animated_jupiter_mollview.gif" width="550" height="400"/>
-<img src="animated_deffield_zoom.gif" width="550" height="400"/>
+<img src="jupiter.gif" width="550" height="400"/>
 </center>
 # cunuSHT
 general (adjoint) spin-n SHTs.
@@ -86,3 +85,8 @@ Similar to above,
 ```
 t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, nthreads=10 gclm=gclm)
 ```
+
+
+<center>
+<img src="animated_deffield_zoom.gif" width="550" height="400"/>
+</center>
