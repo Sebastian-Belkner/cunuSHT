@@ -1,6 +1,7 @@
 <center>
-<img src="jupiter.gif" width="550" height="400"/>
+<img src="jupiter.gif" width="650" height="500"/>
 </center>
+
 # cunuSHT
 general (adjoint) spin-n SHTs.
 
