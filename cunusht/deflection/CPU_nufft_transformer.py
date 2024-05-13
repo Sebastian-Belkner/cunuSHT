@@ -297,7 +297,7 @@ class CPU_DUCCnufft_transformer:
         return dmap
     
     @debug_decorator
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     def adjoint_doubling(self, dmap, gcmap, spin):
         # go from double Fourier sphere to Clenshaw-Curtis grid
@@ -319,14 +319,14 @@ class CPU_DUCCnufft_transformer:
         return gcmap
 
     @debug_decorator
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     def synthesis(self, gclm, spin, lmax, mmax, nthreads, mode, out):
         out = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=self.ntheta_CAR, nphi=self.nphi_CAR, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
         return out
 
     @debug_decorator
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     def adjoint_synthesis(self, dmap, gclm, spin, lmax, mmax, mode='STANDARD'):
         return ducc0.sht.experimental.adjoint_synthesis_2d(map=dmap.real, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=mode, alm=gclm)
@@ -342,7 +342,7 @@ class CPU_DUCCnufft_transformer:
         return ducc0.nufft.nu2u(
             points=lenmap, coord=ptg, forward=True,
             epsilon=epsilon, nthreads=nthreads,
-            verbose=verbose, periodicity=2*np.pi, out=fc, fft_order=True)
+            verbosity=verbose, periodicity=2*np.pi, out=fc, fft_order=True)
     
     @debug_decorator
     # @timing_decorator
@@ -465,6 +465,7 @@ class CPU_DUCCnufft_transformer:
 
     # @timing_decorator
     def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, ptg=None, verbose=1, execmode='normal'):
+        self.timer.delete('lenmap2gclm()')
         self.timer.start('lenmap2gclm()')
         
         self.single_prec = True if epsilon>1e-6 else False
@@ -490,7 +491,7 @@ class CPU_DUCCnufft_transformer:
         else:
             pointing_theta, pointing_phi = ptg[:,0], ptg[:,1]
         if self.execmode == 'debug':
-            self.ret.update({'dlm2pointing': np.array([pointing_theta, pointing_phi])})
+            self.ret.update({'dlm2pointing': np.array([pointing_theta, pointing_phi]).T})
         pointing_theta = self._ensure_dtype(pointing_theta)
         pointing_phi = self._ensure_dtype(pointing_phi)
         
@@ -607,13 +608,13 @@ class CPU_Lenspyx_transformer:
     def synthesis_general(self, lmax, mmax, alm, loc, spin, epsilon, nthreads, mode, verbose):
         return synthesis_general(lmax=lmax, mmax=mmax, alm=alm, loc=loc, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=mode, verbose=verbose)
   
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     @debug_decorator
     def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, spin, epsilon, mode, nthreads, alm, verbose):
         return adjoint_synthesis_general(lmax=lmax, mmax=mmax, map=pointmap, loc=loc, spin=spin, epsilon=epsilon, mode=mode, nthreads=nthreads, alm=alm, verbose=verbose)
 
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     @debug_decorator      
     def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14):
@@ -623,8 +624,8 @@ class CPU_Lenspyx_transformer:
         # print("Note: none of the passed arguments are used in this function. All parameters were set upon intialisation of lenspyx")
         return self.deflectionlib._get_ptg()           
     
-    # @timing_decorator_close
-    def gclm2lenmap(self, gclm:np.ndarray, dlm, lmax, mmax:int or None, spin:int, nthreads, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=1, execmode='normal'):
+    @timing_decorator_close
+    def gclm2lenmap(self, gclm:np.ndarray, lmax, mmax:int or None, spin:int, nthreads, dlm=None, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=1, execmode='normal'):
         if epsilon is None:
             epsilon = self.epsilon
             assert epsilon is not None
@@ -655,9 +656,12 @@ class CPU_Lenspyx_transformer:
             return self.ret
         return lenmap
 
-    # @timing_decorator_close
-    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, gclm_out=None, ptg=None, execmode='normal'):
-
+    @timing_decorator_close
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, gclm_out=None, ptg=None, execmode='normal'):
+        if epsilon is None:
+            epsilon = self.epsilon
+            assert epsilon is not None
+        self.single_prec = True if epsilon > 1e-6 else False
         def setup(self, nthreads):
             assert execmode in ['normal','debug', 'timing']
             print('Running in {} execution mode'.format(execmode))
@@ -668,13 +672,14 @@ class CPU_Lenspyx_transformer:
         lenmap = self._ensure_dtype(lenmap)
         gclm_out = self._ensure_complexdtype(gclm_out)
         self._assert_precision(lenmap, gclm_out)
+        gclm_out = self._ensure_shape(gclm_out)
         
         setup(self, nthreads)
         
         if ptg is None:
-            ptg = self.dlm2pointing()
+            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon)
             ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
-        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.verbose)
+        gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.deflectionlib.verbosity)
        
         if self.execmode == 'debug':
             print("::debug:: Returned component results")

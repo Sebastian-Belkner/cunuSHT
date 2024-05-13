@@ -91,6 +91,47 @@ void CUadjoint_doubling_1D(
     printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 }
 
+template <typename Scalar>
+__global__ void compute_adjoint_doubling_spin0_contig_1D(const Scalar* doubling1D, const size_t ntheta, const size_t nphi, Scalar* synth1D) {
+    // ntheta here is undoubled, idx goes across ntheta-1
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx <= ntheta-1) {
+        const size_t nphihalf = nphi / 2;
+        const size_t npixplusnphihalf = 2*(ntheta-2)*nphi + nphihalf;
+        const size_t doubleringi = (ntheta-1 + idx) % ntheta;
+        for (size_t phii = 0; phii < nphi; ++phii) {
+            synth1D[idx * nphi + phii] = doubling1D[idx * nphi + phii];
+            if (idx>0 and idx<ntheta-1){
+                if (phii<nphihalf){
+                    synth1D[idx * nphi + phii] += doubling1D[npixplusnphihalf - (doubleringi-1)*nphi + phii];
+                } else {
+                    synth1D[idx * nphi + phii] += doubling1D[npixplusnphihalf - (doubleringi)*nphi + phii];
+                }
+            }
+        }
+    }
+}
+
+
+template <typename Scalar>
+void CUadjoint_doubling_contig_1D(
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
+    const size_t nring,
+    const size_t nphi,
+    nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> outarr_adjoint_doubling1D) {
+
+    const int threadsPerBlock = 256;
+    int blocksPerGrid = (nring + threadsPerBlock - 1) / threadsPerBlock;
+    compute_adjoint_doubling_spin0_contig_1D<<<blocksPerGrid, threadsPerBlock>>>(synth1D.data(), nring, nphi, outarr_adjoint_doubling1D.data());
+    cudaDeviceSynchronize();
+    cudaError_t errSync  = cudaGetLastError();
+    cudaError_t errAsync = cudaDeviceSynchronize();
+    if (errSync != cudaSuccess) 
+    printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+    if (errAsync != cudaSuccess)
+    printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+}
+
 
 template <typename Scalar>
 __global__ void compute_doubling_spin0_1D(const Scalar* synth1D, const size_t ntheta, const size_t nphi, Scalar* doubling1D) {
