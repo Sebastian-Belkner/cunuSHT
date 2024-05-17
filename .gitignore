@@ -11,9 +11,6 @@ output/
 output/movie
 test/output
 
-# protect notebooks
-first_steps/
-
 outputs/*
 
 ## Fortran gitignore
