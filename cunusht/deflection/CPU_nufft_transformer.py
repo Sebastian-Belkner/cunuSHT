@@ -406,7 +406,7 @@ class CPU_DUCCnufft_transformer:
         
         return alm
 
-    # @timing_decorator
+    @timing_decorator_close
     def gclm2lenmap(self, gclm, dlm, lmax, mmax, spin, epsilon, nthreads, polrot=True, ptg=None, lenmap=None, verbose=1, execmode=0):
         """CPU algorithm for spin-n remapping using duccnufft
             Args:
@@ -463,7 +463,7 @@ class CPU_DUCCnufft_transformer:
         else:
             return lenmap.real if spin == 0 else lenmap.view(rtype[lenmap.dtype]).reshape((lenmap.size, 2)).T
 
-    # @timing_decorator
+    @timing_decorator_close
     def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm, gclm_out, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, ptg=None, verbose=1, execmode='normal'):
         self.timer.delete('lenmap2gclm()')
         self.timer.start('lenmap2gclm()')
@@ -549,6 +549,7 @@ class CPU_Lenspyx_transformer:
             self.setup_lensing(dglm, mmax_dlm, nthreads, verbose, epsilon, single_prec)
         else:
             print("Did not set up lensing, as at least one parameter was missing")
+            self.deflectionlib = None
         
         self.backend = 'CPU'
         self.execmode = None

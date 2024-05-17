@@ -93,7 +93,7 @@ void CUadjoint_doubling_1D(
 
 template <typename Scalar>
 __global__ void compute_adjoint_doubling_spin0_contig_1D(const Scalar* doubling1D, const size_t ntheta, const size_t nphi, Scalar* synth1D) {
-    // ntheta here is undoubled, idx goes across ntheta-1
+    // This is currently not implemented. DO if needed
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx <= ntheta-1) {
         const size_t nphihalf = nphi / 2;
@@ -115,6 +115,7 @@ __global__ void compute_adjoint_doubling_spin0_contig_1D(const Scalar* doubling1
 
 template <typename Scalar>
 void CUadjoint_doubling_contig_1D(
+    // This is currently not implemented. DO if needed
     nb::ndarray<Scalar, nb::ndim<1>, nb::device::cuda> synth1D,
     const size_t nring,
     const size_t nphi,

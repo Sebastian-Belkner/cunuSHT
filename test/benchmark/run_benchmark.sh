@@ -6,11 +6,11 @@
 ######################################################
 
 
-# for i in {1..19}
-# do
-#     value=$((256*$i-1))
-#     python3 benchmark_gclm2lenmap.py "$i" "GPU"
-# done
+for i in {22..22}
+do
+    value=$((256*$i-1))
+    python3 benchmark_gclm2lenmap.py "$i" "GPU"
+done
 
 # for i in {1..19}
 # do
@@ -19,7 +19,7 @@
 # done
 
 
-
+64880640
 
 ######################################################
 ##########        lenmap2gclm           ##############
@@ -32,8 +32,8 @@
 #     python3 benchmark_gclm2lenmap.py "$i" "GPU"
 # done
 
-for i in {1..19}
-do
-    value=$((256*$i-1))
-    python3 benchmark_lenmap2gclm.py "$i" "GPU"
-done
+# for i in {1..19}
+# do
+#     value=$((256*$i-1))
+#     python3 benchmark_lenmap2gclm.py "$i" "GPU"
+# done

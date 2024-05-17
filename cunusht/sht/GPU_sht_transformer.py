@@ -16,6 +16,7 @@ class GPU_SHTns_transformer():
             print('initializing shtns for CC in GPU_SHTns_transformer')
             print("geominfo for CC in GPU_SHTns_transformer: ", geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
+            # FIXME check is this a CAR grid?
             self.constructor.set_grid(
                 flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS,
                 nlat=int(geominfo[1]['ntheta']),
@@ -42,7 +43,7 @@ class GPU_SHTns_transformer():
 
 
     @shape_decorator
-    def synthesis_jnp(self, gclm: np.ndarray, lmax, mmax, mode=None, nthreads=None):
+    def synthesis(self, gclm: np.ndarray, lmax, mmax, mode=None, nthreads=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
