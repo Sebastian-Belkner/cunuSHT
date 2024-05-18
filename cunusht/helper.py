@@ -17,7 +17,8 @@ def timing_decorator(func):
         cp.cuda.runtime.deviceSynchronize()
         args[0].timer.add(tkey)
         args[0].timer.set(t0, ti)
-        print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
+        if args[0].execmode == 'timing' or args[0].execmode == 'debug':
+            print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
         return _
     return wrapper
 

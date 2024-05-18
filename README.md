@@ -1,6 +1,6 @@
 
 <center>
-<img src="jupiter.gif" width="650" height="500"/>
+<img src="res/jupiter.gif" width="650" height="500"/>
 </center>
 
 # cunuSHT
@@ -90,5 +90,5 @@ t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsil
 
 
 <center>
-<img src="animated_deffield_zoom.gif" width="550" height="400"/>
+<img src="res/animated_deffield_zoom.gif" width="550" height="400"/>
 </center>

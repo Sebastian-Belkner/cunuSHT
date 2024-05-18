@@ -658,14 +658,18 @@ class CPU_Lenspyx_transformer:
         return lenmap
 
     @timing_decorator_close
-    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, gclm_out=None, ptg=None, execmode='normal'):
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, gclm_out=None, ptg=None, verbose=1, execmode='normal'):
         if epsilon is None:
             epsilon = self.epsilon
             assert epsilon is not None
+        else:
+            self.epsilon = epsilon
         self.single_prec = True if epsilon > 1e-6 else False
         def setup(self, nthreads):
             assert execmode in ['normal','debug', 'timing']
             print('Running in {} execution mode'.format(execmode))
+            if 'deflectionlib' not in self.__dict__:
+                self.setup_lensing(dlm, mmax, nthreads, verbose, epsilon, self.single_prec)
             self.execmode = execmode
             self.deflectionlib.execmode = self.execmode
             self.nthreads = self.nthreads if nthreads is None else nthreads

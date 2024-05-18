@@ -350,7 +350,7 @@ class GPU_cufinufft_transformer:
         FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
         nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         
-        pointing_theta, pointing_phi = loc[0], loc[1]
+        pointing_theta, pointing_phi = loc.T[0], loc.T[1]
         
         fc = self.nuFFT2d1(pointmap, nmodes=(self.nphi_dCAR, self.ntheta_dCAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
         CARdmap = self.iC2C(cufft.fftshift(fc, axes=(0,1))).astype(np.complex128)
@@ -448,9 +448,9 @@ class GPU_cufinufft_transformer:
         pointing_dtype = cp.float32 if self.single_prec else cp.float64
         pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
-        ptg = cp.array([pointing_theta, pointing_phi])
         
-        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap[0], ptg, self.epsilon, nthreads, gclm_out, verbose)
+        # print("shapes: ", lenmap.shape, ptg.shape, gclm_out.shape)
+        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap[0], cp.array([pointing_theta, pointing_phi]).T, self.epsilon, nthreads, gclm_out, verbose)
 
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
