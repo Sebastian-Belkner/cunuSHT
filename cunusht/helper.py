@@ -34,7 +34,8 @@ def timing_decorator_close(func):
         _ = func(*args, **kwargs)
         cp.cuda.runtime.deviceSynchronize()
         args[0].timer.add_elapsed(tkey)
-        print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
+        if args[0].execmode == 'timing' or args[0].execmode == 'debug':
+            print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
         args[0].timer.set(t0, ti)
         if args[0].execmode == 'timing':
             args[0].timer.close(args[0].__class__.__name__)
@@ -42,8 +43,9 @@ def timing_decorator_close(func):
             if not os.path.exists(dirname):
                 os.makedirs(dirname)
             args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}".format(kwargs['lmax'], args[0].epsilon))
-            print(args[0].timer)
-            print("::timing:: stored new timing data for lmax {}".format(kwargs['lmax']))
+            if args[0].execmode == 'timing' or args[0].execmode == 'debug':
+                print(args[0].timer)
+                print("::timing:: stored new timing data for lmax {}".format(kwargs['lmax']))
         return _
     return wrapper
 

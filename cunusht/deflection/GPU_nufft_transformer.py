@@ -34,8 +34,10 @@ from cunusht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 ctype = {True: np.complex64, False: np.complex128}
 rtype = {True: np.float32, False: np.float64}
 
-dtype_r2c = {np.float32: np.complex64, np.float64: np.complex128}
-dtype_c2r = {np.complex64: np.float32, np.complex128: np.float64}
+dtype_r2c = {np.dtype(np.float32): np.complex64, np.dtype(np.float64): np.complex128,
+             np.float32: np.complex64, np.float64: np.complex128}
+dtype_c2r = {np.dtype(np.complex64): np.float32, np.dtype(np.complex128): np.float64,
+             np.complex64: np.float32, np.complex128: np.float64}
 
 timer = tim(1, prefix='GPU')
 
@@ -225,7 +227,7 @@ class GPU_cufinufft_transformer:
         # FIXME keep nuFFT double precision for any epsilon for now.
         "nuFFT dtype real"
 
-        self.FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
+        self.FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
         # self.FFT_dtype = cp.float64
         _C = cp.empty(self.nuFFTshape, dtype=self.FFT_dtype)
         _C = cp.ascontiguousarray(_C.T) if self.nuFFTtype == 1 else cp.ascontiguousarray(_C)
@@ -249,7 +251,7 @@ class GPU_cufinufft_transformer:
     # @shape_decorator
     def _synthesis(self, alm, out, lmax, mmax):
         # This is CAR grid, as init sets up SHT transformer with CAR geometry
-        assert alm.type in [np.complex128, cp.complex128], "alm should be double precision for accurate SHT, but is {}".format(alm.dtype) 
+        assert alm.dtype in [np.complex128, cp.complex128], "alm should be double precision for accurate SHT, but is {}".format(alm.dtype) 
         
         return self.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax)
     
@@ -258,7 +260,7 @@ class GPU_cufinufft_transformer:
     # @shape_decorator
     def _adjoint_synthesis(self, synthmap, lmax, mmax, out, spin=0):
         # This is CAR grid, as init sets up SHT transformer with CAR geometry
-        assert synthmap.type in [np.floaat64, cp.float64], "synthmap should be double precision for accurate SHT, but is {}".format(synthmap.dtype) 
+        assert synthmap.dtype in [np.float64, cp.float64], "synthmap should be double precision for accurate SHT, but is {}".format(synthmap.dtype) 
         
         return self.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax)
 
@@ -297,7 +299,10 @@ class GPU_cufinufft_transformer:
     # @shape_decorator
     def _nuFFT2d1(self, pointmap, nmodes, x, y, epsilon, fc_out=None):
         assert x.dtype == y.dtype
-        assert pointmap.dtype == x.dtype, 'map precision should match pointing precision ({}), but is {}'.format(x.dtype, pointmap.dtype)
+        
+        # FIXME why does pointmap have to be complex, when nuFFTplan dtype is set to float?
+        assert dtype_c2r[pointmap.dtype] == x.dtype, 'map precision should match pointing precision ({}), but is {}'.format(x.dtype, pointmap.dtype)
+        
         if self.nuFFTtype:
             self.nuFFTplan.setpts(x, y, None)
             return self.nuFFTplan.execute(pointmap)
@@ -326,7 +331,7 @@ class GPU_cufinufft_transformer:
         lmax = self.deflectionlib.geominfo[1]['lmax']
         pp = cp.ones((self.npix()), dtype=cp.double)
         pt = cp.ones((self.npix()), dtype=cp.double)
-        _t = (pt.reshape(lmax+1,-1)*self.deflectionlib.geom.theta[:,np.newaxis]).flatten()
+        _t = (pt.reshape(lmax+1,-1) * cp.array(self.deflectionlib.geom.theta)[:,cp.newaxis]).flatten()
         _p = ((pp.reshape(lmax+1,-1)) * cp.linspace(0,2*np.pi,int(self.deflectionlib.geom.nph[0]), endpoint=False)).flatten()
         return cp.array([_t, _p])
     
@@ -351,7 +356,7 @@ class GPU_cufinufft_transformer:
     def synthesis(self, alm, out, lmax, mmax):
         """ This is outward facing function, and uses the pointing grid, as user might expect
         """
-        if not isinstance(alm, cp.array):
+        if not isinstance(alm, cp.ndarray):
             alm = cp.array(alm)
             print("WARNING: alm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if out is None:
@@ -367,7 +372,7 @@ class GPU_cufinufft_transformer:
     def adjoint_synthesis(self, synthmap, lmax, mmax, out, spin=0):
         """ This is outward facing function, and uses the pointing grid, as user might expect
         """
-        if not isinstance(synthmap, cp.array):
+        if not isinstance(synthmap, cp.ndarray):
             synthmap = cp.array(synthmap)
             print("WARNING: synthmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if out is None:
@@ -384,13 +389,13 @@ class GPU_cufinufft_transformer:
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
-        if not isinstance(alm, cp.array):
+        if not isinstance(alm, cp.ndarray):
             alm = cp.array(alm)
             print("WARNING: alm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(pointmap, cp.array):
+        if not isinstance(pointmap, cp.ndarray):
             pointmap = cp.array(pointmap)
             print("WARNING: synthmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(loc, cp.array):
+        if not isinstance(loc, cp.ndarray):
             loc = cp.array(loc)
             print("WARNING: loc not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         
@@ -419,7 +424,7 @@ class GPU_cufinufft_transformer:
         # del self.CARmap
         _C = self.CARdmap.reshape(self.nphi_dCAR,-1).astype(self.FFT_dtype)
 
-        fc = self.C2C(_C).astype(dtype_r2c[self.nuFFT_dtype]) # sp, dp didn't seem to have impact on acc
+        fc = self._C2C(_C).astype(dtype_r2c[self.nuFFT_dtype]) # sp, dp didn't seem to have impact on acc
         # del _C
         pointmap = self._nuFFT2d2(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon, pointmap)
         # self.nuFFT2d2(fc, pointing_phi, pointing_theta, epsilon, pointmap)
@@ -436,13 +441,13 @@ class GPU_cufinufft_transformer:
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
-        if not isinstance(alm, cp.array):
+        if not isinstance(alm, cp.ndarray):
             alm = cp.array(alm)
             print("WARNING: alm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(pointmap, cp.array):
+        if not isinstance(pointmap, cp.ndarray):
             pointmap = cp.array(pointmap)
             print("WARNING: synthmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(loc, cp.array):
+        if not isinstance(loc, cp.ndarray):
             loc = cp.array(loc)
             print("WARNING: loc not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         
@@ -485,16 +490,16 @@ class GPU_cufinufft_transformer:
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
-        if not isinstance(gclm, cp.array):
+        if not isinstance(gclm, cp.ndarray):
             gclm = cp.array(gclm)
             print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(lenmap, cp.array):
+        if not isinstance(lenmap, cp.ndarray):
             lenmap = cp.array(lenmap)
             print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(loc, cp.array):
-            loc = cp.array(loc)
-            print("WARNING: loc not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(dlm_scaled, cp.array):
+        if not isinstance(ptg, cp.ndarray) if ptg is not None else False:
+            ptg = cp.array(ptg)
+            print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+        if not isinstance(dlm_scaled, cp.ndarray):
             dlm_scaled = cp.array(dlm_scaled)
             print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         
@@ -557,16 +562,16 @@ class GPU_cufinufft_transformer:
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
-        if not isinstance(gclm, cp.array):
+        if not isinstance(gclm, cp.ndarray):
             gclm = cp.array(gclm)
             print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(lenmap, cp.array):
+        if not isinstance(lenmap, cp.ndarray):
             lenmap = cp.array(lenmap)
             print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(loc, cp.array):
-            loc = cp.array(loc)
-            print("WARNING: loc not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
-        if not isinstance(dlm_scaled, cp.array):
+        if not isinstance(ptg, cp.ndarray) if ptg is not None else False:
+            ptg = cp.array(ptg)
+            print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+        if not isinstance(dlm_scaled, cp.ndarray):
             dlm_scaled = cp.array(dlm_scaled)
             print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         
