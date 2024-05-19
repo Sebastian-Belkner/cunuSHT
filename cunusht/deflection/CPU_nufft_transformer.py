@@ -264,7 +264,7 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     # @timing_decorator
     # @shape_decorator
-    def C2C(self, dmap, spin, nthreads, out):
+    def _C2C(self, dmap, spin, nthreads, out):
         if spin == 0:
             tmp = np.empty(dmap.shape, dtype=ctype[dmap.dtype])
             dmap = ducc0.fft.c2c(dmap, axes=(0, 1), inorm=2, nthreads=nthreads, out=tmp, forward=True)
@@ -276,13 +276,13 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     # @timing_decorator
     # @shape_decorator       
-    def iC2C(self, fc, dmap, nthreads):
+    def _iC2C(self, fc, dmap, nthreads):
         return ducc0.fft.c2c(fc, axes=(0, 1), inorm=2, nthreads=nthreads, out=dmap, forward=False)
 
     @debug_decorator
     # @timing_decorator
     # @shape_decorator
-    def doubling(self, map, ntheta, nphi, spin, out):
+    def _doubling(self, map, ntheta, nphi, spin, out):
         dmap = np.empty((2 * ntheta - 2, nphi), dtype=map.dtype if spin == 0 else ctype[map.dtype])
         if spin == 0:
             dmap[:ntheta, :] = map[0]
@@ -299,7 +299,7 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def adjoint_doubling(self, dmap, gcmap, spin):
+    def _adjoint_doubling(self, dmap, gcmap, spin):
         # go from double Fourier sphere to Clenshaw-Curtis grid
         if (spin % 2) != 0:
             dmap[1:self.ntheta_CAR - 1, :self.nphihalf_CAR] -= dmap[-1:self.ntheta_CAR - 1:-1, self.nphihalf_CAR:]
@@ -321,20 +321,20 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def synthesis(self, gclm, spin, lmax, mmax, nthreads, mode, out):
+    def _synthesis(self, gclm, spin, lmax, mmax, nthreads, mode, out):
         out = ducc0.sht.experimental.synthesis_2d(alm=gclm, ntheta=self.ntheta_CAR, nphi=self.nphi_CAR, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=nthreads, mode=mode)
         return out
 
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def adjoint_synthesis(self, dmap, gclm, spin, lmax, mmax, mode='STANDARD'):
+    def _adjoint_synthesis(self, dmap, gclm, spin, lmax, mmax, mode='STANDARD'):
         return ducc0.sht.experimental.adjoint_synthesis_2d(map=dmap.real, spin=spin, lmax=lmax, mmax=mmax, geometry="CC", nthreads=self.nthreads, mode=mode, alm=gclm)
 
     @debug_decorator
     # @timing_decorator
     # @shape_decorator        
-    def nuFFT2d1(self, lenmap, ptg, nthreads, epsilon, verbose, fc):
+    def _nuFFT2d1(self, lenmap, ptg, nthreads, epsilon, verbose, fc):
         """assert_shape: batching not supported
         assert dtype: lenmap, fc must be complex
         assert shape: lenmap must be flat (2 * ntheta - 2) * nphi, ptg must be ((2 * ntheta - 2) * nphi, 2), fc must be (2 * ntheta - 2, nphi)
@@ -347,14 +347,14 @@ class CPU_DUCCnufft_transformer:
     @debug_decorator
     # @timing_decorator
     # @shape_decorator
-    def nuFFT2d2(self, grid, x, y, epsilon, nthreads, verbose, out):
+    def _nuFFT2d2(self, grid, x, y, epsilon, nthreads, verbose, out):
         out = ducc0.nufft.u2nu(grid=grid.T, coord=np.array([y,x]).T, forward=False, epsilon=epsilon, nthreads=nthreads, verbose=verbose, periodicity=2*np.pi, fft_order=True)
         return out
     
     @debug_decorator
     # @timing_decorator
     # @shape_decorator
-    def rotate(self, pointmap, polrot, spin, nthreads):
+    def _rotate(self, pointmap, polrot, spin, nthreads):
         if polrot * spin:
             if self._cis:
                 cis = self._get_cischi()
@@ -369,40 +369,61 @@ class CPU_DUCCnufft_transformer:
         return pointmap
     
     @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def synthesis(self, alm, out, lmax, mmax, nthreads):
+        """ This is outward facing function, and uses the pointing grid, as a user might expect
+        """
+        self.deflectionlib.synthesis(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        return out
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def adjoint_synthesis(self, synthmap, lmax, mmax, nthreads, out, spin=0):
+        """ This is outward facing function, and uses the pointing grid, as a user might expect
+        """
+        return self.deflectionlib.adjoint_synthesis(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+    
+    @debug_decorator
     # @timing_decorator
     # @shape_decorator  
     def synthesis_general(self, pointmap, lmax, mmax, alm, loc, spin, epsilon, nthreads, mode, verbose):
+        """ This is outward facing function
+        """
         pointing_theta, pointing_phi = loc[:,0], loc[:,1]
         
         pointmap = self._ensure_batchedshape(pointmap)
         alm = self._ensure_batchedshape(alm)
         
         out = None
-        CARmap = self.synthesis(alm, spin=spin, lmax=lmax, mmax=mmax, mode=mode, nthreads=nthreads, out=out)
+        CARmap = self._synthesis(alm, spin=spin, lmax=lmax, mmax=mmax, mode=mode, nthreads=nthreads, out=out)
         out = None
-        dmap = self.doubling(CARmap, ntheta=self.ntheta_CAR, nphi=self.nphi_CAR, spin=spin, out=out)
+        dmap = self._doubling(CARmap, ntheta=self.ntheta_CAR, nphi=self.nphi_CAR, spin=spin, out=out)
         out = None
-        dmap = self.C2C(dmap, spin, nthreads, out)
-        pointmap = self.nuFFT2d2(grid=dmap, x=pointing_theta, y=pointing_phi, epsilon=epsilon, nthreads=nthreads, verbose=verbose, out=out)
+        dmap = self._C2C(dmap, spin, nthreads, out)
+        pointmap = self._nuFFT2d2(grid=dmap, x=pointing_theta, y=pointing_phi, epsilon=epsilon, nthreads=nthreads, verbose=verbose, out=out)
         return pointmap
 
     @debug_decorator
     # @timing_decorator
     # @shape_decorator  
     def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, spin, epsilon, nthreads, mode, alm, verbose):
+        """ This is outward facing function
+        """
         nalm = ((mmax+1)*(mmax+2))//2 + (mmax+1)*(lmax-mmax)
         pointing_theta, pointing_phi = loc[:,0], loc[:,1]
         
         fc = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=pointmap.dtype)
         fc = self._ensure_dtype_nuFFT(fc)
-        fc = self.nuFFT2d1(pointmap, np.array([pointing_theta, pointing_phi]).T, nthreads, epsilon, verbose, fc)
+        fc = self._nuFFT2d1(pointmap, np.array([pointing_theta, pointing_phi]).T, nthreads, epsilon, verbose, fc)
         
         dmap = np.empty((2 * self.ntheta_CAR - 2, self.nphi_CAR), dtype=pointmap.dtype)
-        dmap = self.iC2C(fc, dmap, nthreads)
+        dmap = self._iC2C(fc, dmap, nthreads)
         gcmap = np.empty((self.ntheta_CAR, self.nphi_CAR), dtype=pointmap.real.dtype)
-        gcmap = self.adjoint_doubling(dmap, gcmap, spin)
+        gcmap = self._adjoint_doubling(dmap, gcmap, spin)
         alm = np.empty((1, nalm), dtype=pointmap.dtype)
-        alm = self.adjoint_synthesis(gcmap, alm, spin=spin, lmax=lmax, mmax=mmax, mode=mode)
+        alm = self._adjoint_synthesis(gcmap, alm, spin=spin, lmax=lmax, mmax=mmax, mode=mode)
         
         return alm
 
@@ -456,7 +477,7 @@ class CPU_DUCCnufft_transformer:
         pointing_phi = self._ensure_dtype(pointing_phi)
         
         lenmap = self.synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=np.array([pointing_theta, pointing_phi]).T, spin=spin, epsilon=epsilon, nthreads=nthreads, mode=ducc_sht_mode(gclm, spin), alm=gclm, verbose=verbose)
-        lenmap = self.rotate(lenmap, polrot, spin, nthreads)
+        lenmap = self._rotate(lenmap, polrot, spin, nthreads)
         
         if self.execmode == 'debug':
             return self.ret
@@ -602,6 +623,24 @@ class CPU_Lenspyx_transformer:
             assert lenmap.dtype in [np.float64], "lenmap must be double precision"
             assert gclm_out.dtype in [np.complex128], "gclm_out must be double precision"
             assert self.deflectionlib.epsilon<=1e-6, "epsilon must be > 1e-6 for double precision"
+            
+            
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def synthesis(self, alm, out, lmax, mmax, nthreads):
+        """ This is outward facing function, and uses the pointing grid, as a user might expect
+        """
+        self.deflectionlib.geom.synthesis(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
+        return out
+    
+    @debug_decorator
+    @timing_decorator
+    # @shape_decorator
+    def adjoint_synthesis(self, synthmap, lmax, mmax, nthreads, out, spin=0):
+        """ This is outward facing function, and uses the pointing grid, as a user might expect
+        """
+        return self.deflectionlib.geom.adjoint_synthesis(synthmap, gclm=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
             
     # @timing_decorator
     # @shape_decorator

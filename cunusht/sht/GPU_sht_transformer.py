@@ -57,7 +57,8 @@ class GPU_SHTns_transformer():
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        return self.constructor.cu_SH_to_spat(gclm.data.ptr, out.data.ptr)
+        self.constructor.cu_SH_to_spat(gclm.data.ptr, out.data.ptr)
+        return out
 
 
     def adjoint_synthesis_cupy(self, synthmap, gclm, lmax, mmax, mode=None, nthreads=None):
