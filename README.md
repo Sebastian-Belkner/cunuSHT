@@ -1,6 +1,6 @@
 
 <center>
-<img src="res/logo.png" width="350" height="280"/>
+<img src="res/logo.png" width="320" height="280"/>
 </center>
 
 # cunuSHT
@@ -22,11 +22,13 @@ Operators:
 ## Application
 
 Highly accurate remapping of pixels on the sphere, as shown in the following examples.
+
 <center>
-Simulated movement of Jupiters clouds
-<img src="res/jupiter.gif" width="650" height="500"/>
+Psuedo-simulated movement of Jupiters clouds
+<img src="res/jupiter.gif" width="600" height="500"/>
+ 
 Repeated deflection of the cosmic microwave background with random Gaussian Lambda-CDM deflection fields.
-<img src="res/deffield.gif" width="550" height="400"/>
+<img src="res/deffield.gif" width="450" height="350"/>
 </center>
 
 
