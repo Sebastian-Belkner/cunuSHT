@@ -54,7 +54,7 @@ for epsilon in epsilons:
                         'dglm': toydlm,
                         'mmax_dlm': lmax,
                         'nthreads': nthreads,
-                        'verbosity': 1,
+                        'verbose': 1,
                         'epsilon': epsilon,
                         'single_prec': False,
                     }
@@ -89,4 +89,4 @@ for epsilon in epsilons:
                 # print(lenmap.size, toyunllm.size)
                 # import sys
                 # sys.exit()
-                defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, nthreads=nthreads, lenmap=lenmap, ptg=None, execmode='timing')
+                defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing')

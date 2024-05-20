@@ -339,7 +339,7 @@ class GPU_cufinufft_transformer:
         return self.deflectionlib.geom.npix()
     
     @debug_decorator
-    # @timing_decorator
+    @timing_decorator
     # @shape_decorator
     def dlm2pointing(self, dlm_scaled, mmax_dlm, verbose, single_prec=False):
         # NOTE single_prec parameter no needed for CMB lensing applications
