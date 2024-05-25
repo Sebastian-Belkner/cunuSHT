@@ -289,7 +289,7 @@ class GPU_cufinufft_transformer:
         assert x.dtype == y.dtype
         assert dtype_c2r[fc.dtype] == x.dtype, 'fourier coefficients precision should match pointing precision ({}), but is {}'.format(x.dtype, dtype_c2r[fc.dtype])
         if self.nuFFTtype:
-            self.nuFFTplan.setpts(x, y, None)
+            # self.nuFFTplan.setpts(x, y, None)
             return self.nuFFTplan.execute(fc) #out=map_out
         else:
             return cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon) #out=map_out
@@ -479,29 +479,35 @@ class GPU_cufinufft_transformer:
         return alm
     
     @timing_decorator_close
-    def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, epsilon=None, lenmap=None, verbose=1, execmode='normal'):
+    def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, epsilon=None, lenmap=None, verbose=1, execmode='normal', runid=None):
         """  This is outward facing function, expects nuFFT type 2
     
                 Note: Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call, in which case this in principle becomes a pure synthesis_general() call
         """
+        self.runid = runid
         self.timer.delete('gclm2lenmap()')
         self.timer.start('gclm2lenmap()')
         
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
+        t0, ti = self.timer.reset()
+        cp.cuda.runtime.deviceSynchronize()
         if not isinstance(gclm, cp.ndarray):
             gclm = cp.array(gclm)
-            print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            # print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(lenmap, cp.ndarray):
             lenmap = cp.array(lenmap)
-            print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            # print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(ptg, cp.ndarray) if ptg is not None else False:
             ptg = cp.array(ptg)
-            print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            # print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(dlm_scaled, cp.ndarray):
             dlm_scaled = cp.array(dlm_scaled)
-            print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            # print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+        cp.cuda.runtime.deviceSynchronize()
+        self.timer.add("Transfer ->")
+        self.timer.set(t0, ti)
         
         if self.nuFFTtype:
             # NOTE epsilon parameter only useful if nuFFT not planned
@@ -537,8 +543,18 @@ class GPU_cufinufft_transformer:
             pointing_theta, pointing_phi = ptg
         nuFFTdtype = cp.float32 if self.nuFFT_single_prec else cp.float64
         pointing_theta, pointing_phi = pointing_theta.astype(nuFFTdtype), pointing_phi.astype(nuFFTdtype)
-
+        y, x = cp.array([pointing_theta, pointing_phi]).T.T[0], cp.array([pointing_theta, pointing_phi]).T.T[1]
+        self.nuFFTplan.setpts(x, y, None)
+        
         lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=cp.array([pointing_theta, pointing_phi]).T, epsilon=self.epsilon, pointmap=lenmap, verbose=verbose)
+        
+        if self.execmode == 'timing':
+            t0, ti = self.timer.reset()
+            cp.cuda.runtime.deviceSynchronize()
+            lenmap.get()
+            cp.cuda.runtime.deviceSynchronize()
+            self.timer.add("Transfer <-")
+            self.timer.set(t0, ti)
         
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
@@ -549,19 +565,22 @@ class GPU_cufinufft_transformer:
         return lenmap
 
     @timing_decorator_close
-    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm:cp.ndarray, lmax:int, mmax:int, epsilon=None, ptg=None, verbose=1, execmode='normal'):
+    def lenmap2gclm(self, lenmap:cp.ndarray, dlm_scaled:cp.ndarray, gclm:cp.ndarray, lmax:int, mmax:int, epsilon=None, ptg=None, verbose=1, execmode='normal', runid=None):
         """ This is outward facing function, expects nuFFT type 1
             
             Note:
                 lenmap must be theta contiguous
                 For inverse-lensing, need to feed in lensed maps times unlensed forward magnification matrix.
         """
+        self.runid = runid
         self.timer.delete('lenmap2gclm()')
         self.timer.start("lenmap2gclm()")
         
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
         assert mmax == self.deflectionlib.geominfo[1]['lmax'], "Expected mmax={}. mmax must be same as lmax during init, but is {}".format(mmax, self.deflectionlib.geominfo[1]['lmax'])
         
+        t0, ti = self.timer.reset()
+        cp.cuda.runtime.deviceSynchronize()
         if not isinstance(gclm, cp.ndarray):
             gclm = cp.array(gclm)
             print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
@@ -574,6 +593,9 @@ class GPU_cufinufft_transformer:
         if not isinstance(dlm_scaled, cp.ndarray):
             dlm_scaled = cp.array(dlm_scaled)
             print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+        cp.cuda.runtime.deviceSynchronize()
+        self.timer.add("Transfer ->")
+        self.timer.set(t0, ti)
         
         if self.nuFFTtype:
             # NOTE epsilon parameter only useful if nuFFT not planned
@@ -612,6 +634,14 @@ class GPU_cufinufft_transformer:
         pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
         
         gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap[0], cp.array([pointing_theta, pointing_phi]).T, self.epsilon, gclm, verbose)
+        
+        if self.execmode == 'timing':
+            t0, ti = self.timer.reset()
+            cp.cuda.runtime.deviceSynchronize()
+            gclm.get()
+            cp.cuda.runtime.deviceSynchronize()
+            self.timer.add("Transfer <-")
+            self.timer.set(t0, ti)
 
         if self.execmode == 'debug':
             print("::debug:: Returned component results")

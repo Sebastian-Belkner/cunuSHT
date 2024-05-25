@@ -10,9 +10,10 @@ import sys
 from lenspyx.lensing import get_geom as get_lenspyxgeom
 from delensalot.sims.sims_lib import Xunl, Xsky
 
-epsilons = [1e-10]
+print(sys.argv[4])
+epsilons = [float(sys.argv[2])]
 lmaxs = [256*int(sys.argv[1])-1]
-runinfos = [("GPU", "cufinufft")] if sys.argv[2] == 'GPU' else [("CPU", "lenspyx")]
+runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 nthreads = 10
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
@@ -78,4 +79,5 @@ for epsilon in epsilons:
                     dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
                     dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
                     gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
-                    defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing')
+                    # defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
+                    defres[backend][solver] = t.lenmap2gclm(lenmap.get(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))

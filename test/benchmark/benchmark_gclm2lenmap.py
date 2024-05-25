@@ -15,10 +15,10 @@ runinfos = [
     # ("CPU", "duccnufft"),
     ("GPU", "cufinufft")
     ]
-epsilons = [1e-10]
+epsilons = [float(sys.argv[2])]
 # lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
 lmaxs = [256*int(sys.argv[1])-1]
-runinfos = [("GPU", "cufinufft")] if sys.argv[2] == 'GPU' else [("CPU", "lenspyx")]
+runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
@@ -80,13 +80,5 @@ for epsilon in epsilons:
                 ll = np.arange(0,lmax+1,1)
                 dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
                 dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) #if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
-                # npix = lenmap.size
-                # rng = np.random.default_rng(48)
-                # loc = rng.uniform(0., 1., (npix,2))
-                # loc[:, 0] *= np.pi
-                # loc[:, 1] *= 2*np.pi
-                # ptg = cp.array(loc)
-                # print(lenmap.size, toyunllm.size)
-                # import sys
-                # sys.exit()
-                defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing')
+                # defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
+                defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
