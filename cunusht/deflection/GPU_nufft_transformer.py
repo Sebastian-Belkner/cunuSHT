@@ -27,7 +27,7 @@ import cunusht.geometry as geometry
 from cunusht.geometry import Geom
 from cunusht.utils import timer as tim
 
-from cunusht.helper import shape_decorator, debug_decorator, timing_decorator, timing_decorator_close
+from cunusht.helper_GPU import shape_decorator, debug_decorator, timing_decorator, timing_decorator_close
 from cunusht.sht.GPU_sht_transformer import GPU_SHT_cunusht_transformer, GPU_SHTns_transformer
 from cunusht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer
 
@@ -89,7 +89,7 @@ class deflection:
         # @debug_decorator
         @timing_decorator
         def _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi):
-            return podo.Cpointing_1Dto1D(cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi, pointing_theta, pointing_phi)
+            return podo.Cpointing_1Dto1D_lowmem(cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi, pointing_theta, pointing_phi)
         
         dlm_scaled = cp.array(dlm_scaled, dtype=np.complex)
         cpt = cp.array(self.geom.theta.astype(np.double), dtype=cp.double)

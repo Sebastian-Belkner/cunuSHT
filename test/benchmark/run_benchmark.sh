@@ -6,26 +6,26 @@
 ######################################################
 
 
-for epsilon in 1e-14 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
-do
-    for i in {1..20}
-    do
-        for n in {01..10}
-        do
-        lmax=$((256*$i-1))
-        fn=/mnt/home/sbelkner/git/cunuSHT/test/benchmark/timings/GPU_cufinufft_transformer/gclm2lenmap/lmax${lmax}_epsilon${epsilon}_run${n}
+# for epsilon in 1e-14 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
+# do
+#     for i in {1..20}
+#     do
+#         for n in {01..10}
+#         do
+#         lmax=$((256*$i-1))
+#         fn=/mnt/home/sbelkner/git/cunuSHT/test/benchmark/timings/GPU_cufinufft_transformer/gclm2lenmap/lmax${lmax}_epsilon${epsilon}_run${n}
         
-        SECONDS=0
-            # if [ ! -f $fn ]; then
-                # echo "fn does not exist: $fn"
-                python3 benchmark_gclm2lenmap.py "$i" "$epsilon" "GPU" $n
-                echo "Finish lmax: $lmax ($i/22), epsilon: $epsilon, run: $n/10 - elapsed time: $SECONDS seconds"
-            # else
-                # echo "File already exists: $fn"
-            # fi
-        done
-    done
-done
+#         SECONDS=0
+#             if [ ! -f $fn ]; then
+#                 echo "fn does not exist: $fn"
+#                 python3 benchmark_gclm2lenmap.py "$i" "$epsilon" "GPU" $n
+#                 echo "Finish lmax: $lmax ($i/22), epsilon: $epsilon, run: $n/10 - elapsed time: $SECONDS seconds"
+#             else
+#                 echo "File already exists: $fn"
+#             fi
+#         done
+#     done
+# done
 
 
 # for epsilon in 1e-14 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
@@ -48,11 +48,26 @@ done
 ######################################################
 
 
-# for i in {1..22}
-# do
-#     value=$((256*$i-1))
-#     python3 benchmark_lenmap2gclm.py "$i" "GPU"
-# done
+for epsilon in 1e-14 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
+do
+    for i in {1..20}
+    do
+        for n in {01..10}
+        do
+        lmax=$((256*$i-1))
+        fn=/mnt/home/sbelkner/git/cunuSHT/test/benchmark/timings/GPU_cufinufft_transformer/lenmap2gclm/lmax${lmax}_epsilon${epsilon}_run${n}
+        
+        SECONDS=0
+            if [ ! -f $fn ]; then
+                echo "fn does not exist: $fn"
+                python3 benchmark_lenmap2gclm.py "$i" "$epsilon" "GPU" $n
+                echo "Finish lmax: $lmax ($i/22), epsilon: $epsilon, run: $n/10 - elapsed time: $SECONDS seconds"
+            else
+                echo "File already exists: $fn"
+            fi
+        done
+    done
+done
 
 
 # for epsilon in 1e-14 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02

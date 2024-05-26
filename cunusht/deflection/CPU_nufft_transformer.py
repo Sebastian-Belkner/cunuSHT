@@ -21,7 +21,7 @@ from cunusht import cacher
 from cunusht.utils import timer as tim
 import cunusht.geometry as geometry
 from cunusht.geometry import Geom
-from cunusht.helper import shape_decorator, timing_decorator, debug_decorator, timing_decorator_close
+from cunusht.helper_CPU import shape_decorator, timing_decorator, debug_decorator, timing_decorator_close
 from cunusht.sht.CPU_sht_transformer import CPU_SHT_DUCC_transformer, CPU_SHT_SHTns_transformer
 
 ctype = {np.dtype(np.float32): np.complex64,
