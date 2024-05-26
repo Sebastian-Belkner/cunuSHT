@@ -4,7 +4,7 @@ import numpy as np
 import shtns
 os.environ['SHTNS_VERBOSE']="2" #This is to make nlat ~ lmax work
 import cunusht.geometry as geometry
-from cunusht.helper import shape_decorator
+from cunusht.helper_GPU import shape_decorator
 
 
 class GPU_SHTns_transformer():
@@ -57,8 +57,7 @@ class GPU_SHTns_transformer():
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        self.constructor.cu_SH_to_spat(gclm.data.ptr, out.data.ptr)
-        return out
+        return self.constructor.synth(gclm)
 
 
     def adjoint_synthesis_cupy(self, synthmap, gclm, lmax, mmax, mode=None, nthreads=None):

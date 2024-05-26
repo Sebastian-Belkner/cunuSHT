@@ -3,9 +3,7 @@ import sys
 import numpy as np
 import healpy as hp
 
-import line_profiler
-
-import finufft
+# import line_profiler
 
 import lenspyx
 from lenspyx.lensing import get_geom as get_lenspyxgeom
@@ -31,7 +29,7 @@ ctype = {np.dtype(np.float32): np.complex64,
          np.float64: np.complex128,
          np.longfloat: np.longcomplex}
 rtype = {np.dtype(np.complex64): np.float32,
-         np.dtype(np.complex128): np.float64,
+         np.dtype(np.complex128): np.float64, 
          np.dtype(np.longcomplex): np.longfloat,
          np.complex64: np.float32,
          np.complex128: np.float64,
@@ -762,6 +760,7 @@ class CPU_Lenspyx_transformer:
         return m.squeeze()
 
 class CPU_finufft_transformer:
+    # import finufft
     def __init__(self, shttransformer_desc, geominfo, deflection_kwargs):
         self.backend = 'CPU'
         self.shttransformer_desc = shttransformer_desc

@@ -7,10 +7,9 @@ from ducc0.sht.experimental import (
     adjoint_synthesis as ducc_adjoint_synthesis
 )
 import lenspyx.utils_hp as utils_hp
-import shtns
 
 import cunusht.geometry as geometry
-from cunusht.helper import shape_decorator
+from cunusht.helper_CPU import shape_decorator
 
 class CPU_SHT_DUCC_transformer():
     def __init__(self, geominfo):
@@ -69,6 +68,7 @@ class CPU_SHT_DUCC_transformer():
         return self.adjoint_synthesis(m.copy(), 0, lmax, mmax, nthreads, **kwargs).squeeze()
 
 class CPU_SHT_SHTns_transformer():
+    # import shtns
     """
     NOTUSED: This class is currently not used per default. CPU is run on DUCC.
     """

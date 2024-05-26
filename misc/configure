@@ -14,21 +14,9 @@ export CUDA_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0
 export LD_LIBRARY_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0/lib64
 
 
-## Rusty @ Simons
-
-```
-salloc -p gpu --gpus=1 -C v100 -c 1
-ssh sbelkner@<workergpuX>
-remember workerid!
-module load python gcc cuda
-./start_jupyter (don't miss half the token..)
-connect via VS Code kernel
-```
-
 
 ## Ygdrassil
 Quickhelp to activate GPU on jupyter notebook in VS code
-
 
 Activate conda environment, and load modules before starting kernel,
 
@@ -50,7 +38,6 @@ Run script for starting server,
 
 In VS Code, choose exsiting server with URL.
 Finally, in notebook, choose shtgpu kernel.
-
 
 To install shtns, activate gpu node, load compatible modules (CUDAcore needs gcc <=10, i.e: module load GCC/9.3.0)
 
