@@ -208,7 +208,7 @@ class CPU_DUCCnufft_transformer:
         self.ret = {} # This is for execmode='debug'
         
         # Take ducc good_size, but adapt for good size needed by CPU SHTns (nlat must be multiple of 4)
-        self.ntheta_CAR = (ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4
+        self.ntheta_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2)
         self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
             
