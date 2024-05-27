@@ -4,9 +4,8 @@ Follows https://sepwww.stanford.edu/sep/prof/pvi/conj/paper_html/node9.html#:~:t
 python3 -m unittest test_adjointOperator.py
 """
 import unittest
-
-import numpy as np
 import cupy as cp
+import numpy as np
 import shtns
 import healpy as hp
 import cunusht

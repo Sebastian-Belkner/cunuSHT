@@ -7,8 +7,6 @@ import healpy as hp
 import cunusht
 import sys
 from time import process_time
-from delensalot.sims.sims_lib import Xunl, Xsky
-import cupy as cp
 
 runinfos = [
     # ("CPU", "lenspyx"),
@@ -31,7 +29,8 @@ for epsilon in epsilons:
             geominfo = ('gl',{'lmax':lmax})
             lenjob_geominfo = ('gl',{'lmax':phi_lmax})
             lldlm = np.arange(0,phi_lmax+1)
-            if True:
+            if False:
+                from delensalot.sims.sims_lib import Xunl, Xsky
                 synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
                 philm = synunl.get_sim_phi(0, space='alm')
                 toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
@@ -70,6 +69,7 @@ for epsilon in epsilons:
                     defres[backend][solver] = t.gclm2lenmap(
                             gclm=toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=nthreads, epsilon=epsilon, execmode='timing', ptg=None)
             elif backend == 'GPU':
+                import cupy as cp
                 kwargs = {
                     'geominfo_deflection': lenjob_geominfo,
                     'epsilon': epsilon,
