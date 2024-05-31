@@ -14,7 +14,7 @@ def configuration(parent_package='', top_path=''):
 setup(
     name='cunusht',
     version='0.1',
-    packages=['cunusht'],
+    packages=['cunusht', 'cunusht.sht', 'cunusht.deflection'],
     url='https://github.com/Sebastian-Belkner/cunuSHT',
     author='Sebastian Belkner',
     author_email='to.sebastianbelkner@gmail.com',
