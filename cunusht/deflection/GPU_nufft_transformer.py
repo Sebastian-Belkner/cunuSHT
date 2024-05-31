@@ -21,10 +21,8 @@ from cufinufft import Plan, _compat
 import ducc0
 import cufinufft
 
-import cunusht.cunusht as cunusht
 import cunusht.c.podo_interface as podo
 import cunusht.geometry as geometry
-from cunusht.geometry import Geom
 from cunusht.utils import timer as tim
 
 from cunusht.helper_GPU import shape_decorator, debug_decorator, timing_decorator, timing_decorator_close
@@ -83,7 +81,7 @@ class deflection:
         # @debug_decorator
         @timing_decorator
         def _spin__1___synth(self, dlm_scaled, out_theta, out_phi):
-            self.synthesis_der1_cupy(dlm_scaled, out_theta, out_phi)
+            out_theta, out_phi = self.synthesis_der1_cupy(dlm_scaled, out_theta, out_phi)
             return cp.array([out_theta, out_phi])
           
         # @debug_decorator
@@ -91,7 +89,7 @@ class deflection:
         def _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi):
             return podo.Cpointing_1Dto1D_lowmem(cpt, cpphi0, cpnph, cpofs, spin1_theta, spin1_phi, pointing_theta, pointing_phi)
         
-        dlm_scaled = cp.array(dlm_scaled, dtype=np.complex)
+        dlm_scaled = cp.array(dlm_scaled, dtype=complex)
         cpt = cp.array(self.geom.theta.astype(np.double), dtype=cp.double)
         cpphi0 = cp.array(self.geom.phi0, dtype=cp.double)
         cpnph = cp.array(self.geom.nph, dtype=cp.uint64)
@@ -99,8 +97,8 @@ class deflection:
         spin1_theta = cp.zeros(self.constructor.spat_shape, dtype=cp.double)
         spin1_phi = cp.zeros(self.constructor.spat_shape, dtype=cp.double)
 
-        _spin__1___synth(self, dlm_scaled, spin1_theta, spin1_phi)
-        _pointing(self, spin1_theta.T.flatten(), spin1_phi.T.flatten(), cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
+        spin1_theta, spin1_phi = _spin__1___synth(self, dlm_scaled, spin1_theta, spin1_phi)
+        _pointing(self, spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, pointing_theta, pointing_phi)
         
         del spin1_theta, spin1_phi, cpt, cpphi0, cpnph, cpofs, dlm_scaled
         return cp.array([pointing_theta, pointing_phi])
@@ -252,7 +250,6 @@ class GPU_cufinufft_transformer:
     def _synthesis(self, alm, out, lmax, mmax):
         # This is CAR grid, as init sets up SHT transformer with CAR geometry
         assert alm.dtype in [np.complex128, cp.complex128], "alm should be double precision for accurate SHT, but is {}".format(alm.dtype) 
-        
         return self.synthesis_cupy(alm, out, lmax=lmax, mmax=mmax)
     
     @debug_decorator
@@ -313,6 +310,9 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def _doubling(self, CARmap, ntheta_dCAR, nphi_dCAR, CARdmap):
+        print("shapes _doubling: ", CARmap.shape, ntheta_dCAR, nphi_dCAR, CARdmap.shape)
+        print(CARmap)
+        print('dtypes: ', CARmap.dtype, CARdmap.dtype)
         podo.Cdoubling_contig_1D(CARmap, self.ntheta_CAR, nphi_dCAR, CARdmap)
         return CARdmap   
     
@@ -416,7 +416,7 @@ class GPU_cufinufft_transformer:
         # pointmap = pointmap.astype(cp.float32 if epsilon>1e-6 else cp.float64) 
         pointing_theta, pointing_phi = loc.T[0], loc.T[1] # transposing so that we follow DUCC convention
         
-        self._synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax)
+        self.CARmap = self._synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax).flatten()
         del alm
         
         #TODO 2d-doubling would be nice-to-have at some point

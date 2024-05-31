@@ -1,0 +1,10 @@
+[project]
+name = "cunusht"
+version = "0.0.1"
+requires-python = ">=3.8"
+dependencies = ["ducc0"]
+
+[tool.scikit-build]
+minimum-version = "0.5"
+build-dir = "build/{wheel_tag}"
+editable.rebuild = true

@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import cupy as cp
 
 import shtns
 os.environ['SHTNS_VERBOSE']="2" #This is to make nlat ~ lmax work
@@ -16,7 +17,6 @@ class GPU_SHTns_transformer():
             print('initializing shtns for CC in GPU_SHTns_transformer')
             print("geominfo for CC in GPU_SHTns_transformer: ", geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
-            # FIXME check is this a CAR grid?
             self.constructor.set_grid(
                 flags=shtns.SHT_ALLOW_GPU + shtns.sht_reg_poles + shtns.SHT_THETA_CONTIGUOUS,
                 nlat=int(geominfo[1]['ntheta']),
@@ -66,8 +66,7 @@ class GPU_SHTns_transformer():
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        self.constructor.cu_spat_to_SH(synthmap.data.ptr, gclm.data.ptr)
-        return gclm
+        return self.constructor.cu_spat_to_SH(synthmap)
     
 
     def synthesis_der1(self, gclm: np.int64, out: np.int64, nthreads=None):
@@ -77,6 +76,7 @@ class GPU_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
+        
         buff = self.constructor.synth_grad(gclm)
         ret = np.array([a.flatten() for a in buff])
         return ret
@@ -88,7 +88,10 @@ class GPU_SHTns_transformer():
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
         # gclm = np.atleast_2d(gclm)
-        self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
+        g_theta, g_phi = self.constructor.synth_grad(gclm)
+        print("shapes synthesis_der1_cupy: ", g_theta.shape, g_phi.shape)
+        return cp.array([g_theta.T.flatten(), g_phi.T.flatten()])
+        # self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 
     def analysis(self, map: np.ndarray, lmax=None, mmax=None, nthreads=None, alm=None, mode=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 

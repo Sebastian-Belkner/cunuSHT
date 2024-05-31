@@ -27,7 +27,7 @@ def Cpointing_2Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, ou
     popy.CUpointing_2Dto1D(thetas, phi0, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
     
 def Cpointing_1Dto1D(thetas: cp.array, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
-    popy.CUpointing_1Dto1D_lowmem(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
+    popy.CUpointing_1Dto1D(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)
     
 def Cpointing_1Dto1D_lowmem(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi):
     popy.CUpointing_1Dto1D_lowmem(thetas, phi0s, nphis, ringstarts, spin1_theta, spin1_phi, out_ptheta, out_pphi)

@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 name = "cunusht_interface"
 version = "0.0.1"
 requires-python = ">=3.8"
-dependencies = ["cupy"]
+dependencies = ["cupy-cuda12x"]
 
 [tool.scikit-build]
 minimum-version = "0.5"

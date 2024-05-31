@@ -14,14 +14,14 @@ runinfos = [
     ("GPU", "cufinufft")
     ]
 epsilons = [float(sys.argv[2])]
-# lmaxs = [256*n-1 for n in np.arange(int(sys.argv[1]), 24)]
-lmaxs = [256*int(sys.argv[1])-1]
+# lmaxs = [512*n-1 for n in np.arange(int(sys.argv[1]), 24)]
+lmaxs = [512*int(sys.argv[1])-1]
 runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 Tsky = None
 Tsky2 = None
-nthreads = 10
+nthreads = 20
 
 for epsilon in epsilons:
     for runinfo in runinfos:
@@ -55,11 +55,11 @@ for epsilon in epsilons:
                         'nthreads': nthreads,
                         'verbose': 1,
                         'epsilon': epsilon,
-                        'single_prec': False,
+                        'single_prec': False if epsilon<1e-6 else True
                     }
                     t = t(**kwargs)
                     defres[backend][solver] = t.gclm2lenmap(
-                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=10, execmode='timing', ptg=None)
+                            toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=nthreads, execmode='timing', ptg=None)
                 else:
                     kwargs = {
                         'geominfo_deflection': lenjob_geominfo,

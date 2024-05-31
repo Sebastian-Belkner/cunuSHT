@@ -206,7 +206,8 @@ class CPU_DUCCnufft_transformer:
         self.ret = {} # This is for execmode='debug'
         
         # Take ducc good_size, but adapt for good size needed by CPU SHTns (nlat must be multiple of 4)
-        self.ntheta_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2)
+        # self.ntheta_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2)
+        self.ntheta_CAR = int((ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4)
         self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
             
@@ -346,7 +347,7 @@ class CPU_DUCCnufft_transformer:
     # @timing_decorator
     # @shape_decorator
     def _nuFFT2d2(self, grid, x, y, epsilon, nthreads, verbose, out):
-        out = ducc0.nufft.u2nu(grid=grid.T, coord=np.array([y,x]).T, forward=False, epsilon=epsilon, nthreads=nthreads, verbose=verbose, periodicity=2*np.pi, fft_order=True)
+        out = ducc0.nufft.u2nu(grid=grid.T, coord=np.array([y,x]).T, forward=False, epsilon=epsilon, nthreads=nthreads, verbosity=verbose, periodicity=2*np.pi, fft_order=True)
         return out
     
     @debug_decorator

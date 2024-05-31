@@ -10,11 +10,10 @@ import sys
 from lenspyx.lensing import get_geom as get_lenspyxgeom
 from delensalot.sims.sims_lib import Xunl, Xsky
 
-print(sys.argv[4])
 epsilons = [float(sys.argv[2])]
-lmaxs = [256*int(sys.argv[1])-1]
+lmaxs = [512*int(sys.argv[1])-1]
 runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
-nthreads = 10
+nthreads = 20
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
 for epsilon in epsilons:
@@ -42,7 +41,7 @@ for epsilon in epsilons:
                             'nthreads': nthreads,
                             'verbose': 1,
                             'epsilon': epsilon,
-                            'single_prec': True,
+                            'single_prec': False if epsilon<1e-6 else True
                         }   
                         t = cunusht.get_transformer(backend, solver)
                         t = t(**kwargs)
