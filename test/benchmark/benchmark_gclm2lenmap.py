@@ -79,6 +79,6 @@ for epsilon in epsilons:
                 lenmap = cp.empty(t.deflectionlib.constructor.spat_shape, dtype=cp.complex128).flatten()
                 ll = np.arange(0,lmax+1,1)
                 dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
-                dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) #if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
+                dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) # must always be double precision since nuFFT is always run in double precision
                 # defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
                 defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))

@@ -60,13 +60,15 @@ class GPU_SHTns_transformer():
         return self.constructor.synth(gclm)
 
 
-    def adjoint_synthesis_cupy(self, synthmap, gclm, lmax, mmax, mode=None, nthreads=None):
+    def adjoint_synthesis_cupy(self, synthmap, gclm, lmax, mmax, mode=None, nthreads=None, iw=None):
         #TODO all other than gclm not supported. Want same interface for each backend, 
         # could check grid for each synth and ana call and update if needed
         """Wrapper to SHTns forward SHT
             Return a map or a pair of map for spin non-zero, with the same type as gclm
         """
-        return self.constructor.cu_spat_to_SH(synthmap)
+        if iw is not None:
+            synthmap = synthmap * iw
+        return self.constructor.analys(synthmap)
     
 
     def synthesis_der1(self, gclm: np.int64, out: np.int64, nthreads=None):
@@ -89,7 +91,6 @@ class GPU_SHTns_transformer():
         """
         # gclm = np.atleast_2d(gclm)
         g_theta, g_phi = self.constructor.synth_grad(gclm)
-        print("shapes synthesis_der1_cupy: ", g_theta.shape, g_phi.shape)
         return cp.array([g_theta.T.flatten(), g_phi.T.flatten()])
         # self.constructor.cu_SHsph_to_spat(gclm.data.ptr, out_theta.data.ptr, out_phi.data.ptr)
 

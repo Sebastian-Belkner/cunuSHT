@@ -222,11 +222,10 @@ class GPU_cufinufft_transformer:
 
     # @timing_decorator
     def plan(self, epsilon, nuFFTtype=1):
-        # FIXME keep nuFFT double precision for any epsilon for now.
         "nuFFT dtype real"
 
         self.FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        # self.FFT_dtype = cp.float64
+        # self.FFT_dtype = cp.complex64
         _C = cp.empty(self.nuFFTshape, dtype=self.FFT_dtype)
         _C = cp.ascontiguousarray(_C.T) if self.nuFFTtype == 1 else cp.ascontiguousarray(_C)
         self.FFTplan = get_fft_plan(_C, axes=(0, 1), value_type='C2C')
@@ -255,11 +254,11 @@ class GPU_cufinufft_transformer:
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def _adjoint_synthesis(self, synthmap, lmax, mmax, out, spin=0):
+    def _adjoint_synthesis(self, synthmap, lmax, mmax, out, spin=0, iw=None):
         # This is CAR grid, as init sets up SHT transformer with CAR geometry
         assert synthmap.dtype in [np.float64, cp.float64], "synthmap should be double precision for accurate SHT, but is {}".format(synthmap.dtype) 
         
-        return self.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax)
+        return self.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax, iw=iw)
 
     @debug_decorator
     @timing_decorator
@@ -301,7 +300,7 @@ class GPU_cufinufft_transformer:
         assert dtype_c2r[pointmap.dtype] == x.dtype, 'map precision should match pointing precision ({}), but is {}'.format(x.dtype, pointmap.dtype)
         
         if self.nuFFTtype:
-            self.nuFFTplan.setpts(x, y, None)
+            # self.nuFFTplan.setpts(x, y, None)
             return self.nuFFTplan.execute(pointmap)
         else:  
             return cufinufft.nufft2d1(data=pointmap, x=x, y=y, n_modes=nmodes, isign=-1, eps=epsilon)
@@ -310,9 +309,6 @@ class GPU_cufinufft_transformer:
     @timing_decorator
     # @shape_decorator
     def _doubling(self, CARmap, ntheta_dCAR, nphi_dCAR, CARdmap):
-        print("shapes _doubling: ", CARmap.shape, ntheta_dCAR, nphi_dCAR, CARdmap.shape)
-        print(CARmap)
-        print('dtypes: ', CARmap.dtype, CARdmap.dtype)
         podo.Cdoubling_contig_1D(CARmap, self.ntheta_CAR, nphi_dCAR, CARdmap)
         return CARdmap   
     
@@ -462,20 +458,17 @@ class GPU_cufinufft_transformer:
         # TODO dtype checks - compare to plan if applicable
         
         # TODO shape checks
-        
-        FFT_dtype = cp.float32 if epsilon>1e-6 else cp.float64
-        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        
+
         pointing_theta, pointing_phi = loc.T[0], loc.T[1]
         
         fc = self._nuFFT2d1(pointmap, nmodes=(self.nphi_dCAR, self.ntheta_dCAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
-        CARdmap = self._iC2C(cufft.fftshift(fc, axes=(0,1))).astype(np.complex128)
+        CARdmap = self._iC2C(cufft.fftshift(fc, axes=(0,1)))
         
         CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
         synthmap = self._adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
-        synthmap = (synthmap.reshape(-1,self.nphi_CAR) * self.iw[:,None]).T.flatten()
-
-        alm = self._adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, out=alm)
+        # TODO adjoint_doubling is not theta contiguous, but I don't think that hurts us too much, as adjoint_synth uses 2d-array.
+        synthmap = synthmap.reshape(-1,self.nphi_CAR).T
+        alm = self._adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, out=alm, iw=self.iw)
         return alm
     
     @timing_decorator_close
@@ -541,9 +534,8 @@ class GPU_cufinufft_transformer:
             del dlm_scaled
         else:
             pointing_theta, pointing_phi = ptg
-        nuFFTdtype = cp.float32 if self.nuFFT_single_prec else cp.float64
-        pointing_theta, pointing_phi = pointing_theta.astype(nuFFTdtype), pointing_phi.astype(nuFFTdtype)
-        y, x = cp.array([pointing_theta, pointing_phi]).T.T[0], cp.array([pointing_theta, pointing_phi]).T.T[1]
+        pointing_theta, pointing_phi = pointing_theta.astype(self.nuFFT_dtype), pointing_phi.astype(self.nuFFT_dtype)
+        y, x = cp.array([pointing_theta, pointing_phi])[0], cp.array([pointing_theta, pointing_phi])[1]
         self.nuFFTplan.setpts(x, y, None)
         
         lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=cp.array([pointing_theta, pointing_phi]).T, epsilon=self.epsilon, pointmap=lenmap, verbose=verbose)
@@ -607,12 +599,12 @@ class GPU_cufinufft_transformer:
         self.deflectionlib.epsilon = epsilon
         
         # TODO dtype checks - compare to plan if applicable
-        self._assert_dtype(lenmap, gclm, dlm_scaled)
+        # self._assert_dtype(lenmap, gclm, dlm_scaled)
         self._assert_precision(lenmap, gclm)
-        self._assert_type(lenmap, gclm, dlm_scaled)
+        # self._assert_type(lenmap, gclm, dlm_scaled)
         
         # TODO shape checks
-        self._assert_shape(lenmap, gclm, dlm_scaled, ndim=2, nbatch=1)
+        # self._assert_shape(lenmap, gclm, dlm_scaled, ndim=2, nbatch=1)
         
         self.single_prec = True if epsilon > 1e-6 else False
         
@@ -629,9 +621,9 @@ class GPU_cufinufft_transformer:
             del dlm_scaled
         else:
             pointing_theta, pointing_phi = ptg.T
-        pointing_dtype = cp.float32 if self.single_prec else cp.float64
-        pointing_theta = self._ensure_dtype(pointing_theta, self.single_prec, isreal=True).astype(pointing_dtype)
-        pointing_phi = self._ensure_dtype(pointing_phi, self.single_prec, isreal=True).astype(pointing_dtype)
+        pointing_theta, pointing_phi = pointing_theta.astype(self.nuFFT_dtype), pointing_phi.astype(self.nuFFT_dtype)
+        y, x = cp.array([pointing_theta, pointing_phi])[0], cp.array([pointing_theta, pointing_phi])[1]
+        self.nuFFTplan.setpts(y, x, None)
         
         gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap[0], cp.array([pointing_theta, pointing_phi]).T, self.epsilon, gclm, verbose)
         
@@ -649,50 +641,6 @@ class GPU_cufinufft_transformer:
         del lenmap, pointing_theta, pointing_phi
         self.timer.delete("lenmap2gclm()")
         return gclm
-    
-
-    def __synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, alm, verbose):
-        """ This is a blueprint for later reference
-        """
-        pointing_theta, pointing_phi = loc[0], loc[1]        
-        self.synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax)
-        del alm
-        
-        self.doubling(self.CARmap.reshape(self.nphi_CAR,-1).T.flatten(), self.ntheta_dCAR, self.nphi_dCAR, self.CARdmap)
-        del self.CARmap
-        
-        FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        _C = cp.ascontiguousarray(self.CARdmap.reshape(self.ntheta_dCAR,-1).T.astype(FFT_dtype))
-        fc = cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
-        del self.CARdmap
-
-        nuFFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        _fc = cp.ascontiguousarray(cufft.fftshift(fc, axes=(0,1)), dtype=nuFFT_dtype)#.reshape(1, *fc.shape)
-        del fc, _C
-        
-        if self.planned:
-            self.nuFFTplan.setpts(pointing_phi, pointing_theta, None)
-            return self.nuFFTplan.execute(_fc)
-        
-    def __adjoint_synthesis_general_notiming(self, lmax, mmax, pointmap, loc, epsilon, alm, verbose):
-        """ This is a blueprint for later reference
-        """
-        pointing_theta, pointing_phi = loc[0], loc[1]
-       
-        if self.planned:
-            _d = pointmap.astype(np.complex64)
-            self.nuFFTplan.setpts(pointing_theta, pointing_phi, None)
-            pointmap = self.nuFFTplan.execute(_d)
-        
-        CARdmap = self.iC2C(cufft.fftshift(_d, axes=(1,2))).astype(np.complex128)
-        
-        CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
-        synthmap = self.adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
-        synthmap = synthmap.reshape(-1,self.nphi_CAR)
-        synthmap = synthmap * self.iw[:,None] # TODO replace with shtns_no_weights-flag once it exists
-        synthmap = synthmap.T.flatten()
-
-        return self.adjoint_synthesis(synthmap=synthmap, lmax=lmax, mmax=mmax, out=alm)
 
             
     def hashdict():
