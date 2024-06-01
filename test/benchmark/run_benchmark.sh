@@ -70,16 +70,16 @@ done
 # done
 
 
-for epsilon in 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
-do
-    for i in {1..11}
-    do
-        for n in {01..10}
-        do
-            SECONDS=0
-            value=$((512*$i-1))
-            python3 benchmark_lenmap2gclm.py "$i" "$epsilon" "CPU" &> timings/CPU_Lenspyx_transformer/lenmap2gclm/preprocessing/lmax${value}_epsilon${epsilon}_run${n}
-            echo "Finish lmax: $value ($i/11), epsilon: $epsilon, run: $n/10 - elapsed time: $SECONDS seconds"
-        done
-    done
-done
+# for epsilon in 1e-12 1e-10 1e-08 1e-06 1e-04 1e-02
+# do
+#     for i in {1..11}
+#     do
+#         for n in {01..10}
+#         do
+#             SECONDS=0
+#             value=$((512*$i-1))
+#             python3 benchmark_lenmap2gclm.py "$i" "$epsilon" "CPU" &> timings/CPU_Lenspyx_transformer/lenmap2gclm/preprocessing/lmax${value}_epsilon${epsilon}_run${n}
+#             echo "Finish lmax: $value ($i/11), epsilon: $epsilon, run: $n/10 - elapsed time: $SECONDS seconds"
+#         done
+#     done
+# done
