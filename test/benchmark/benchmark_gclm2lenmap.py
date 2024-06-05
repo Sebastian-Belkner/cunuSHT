@@ -14,8 +14,10 @@ runinfos = [
     ("GPU", "cufinufft")
     ]
 epsilons = [float(sys.argv[2])]
-# lmaxs = [512*n-1 for n in np.arange(int(sys.argv[1]), 24)]
-lmaxs = [512*int(sys.argv[1])-1]
+good_numbersp1 = np.array([4, 8, 16, 28, 36, 64, 76, 136, 148, 176, 244, 316, 344, 376, 568, 676, 736, 876, 1216, 1324, 1576, 1716, 1876, 2188, 2836, 3088, 3376, 3676, 4376, 5104])-1
+# 6076, 6616, 7204, 7876])
+# lmaxs = np.concatenate([lmaxs, good_numbersp1])
+lmaxs = [int(sys.argv[1])]
 runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 phi_lmaxs = [lmax for lmax in lmaxs]
 defres = {}
@@ -29,7 +31,7 @@ for epsilon in epsilons:
             geominfo = ('gl',{'lmax':lmax})
             lenjob_geominfo = ('gl',{'lmax':phi_lmax})
             lldlm = np.arange(0,phi_lmax+1)
-            if False:
+            if True:
                 from delensalot.sims.sims_lib import Xunl, Xsky
                 synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
                 philm = synunl.get_sim_phi(0, space='alm')
@@ -60,6 +62,7 @@ for epsilon in epsilons:
                     t = t(**kwargs)
                     defres[backend][solver] = t.gclm2lenmap(
                             toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=nthreads, execmode='timing', ptg=None)
+                    print('success')
                 else:
                     kwargs = {
                         'geominfo_deflection': lenjob_geominfo,
@@ -68,6 +71,7 @@ for epsilon in epsilons:
                     t = t(**kwargs)
                     defres[backend][solver] = t.gclm2lenmap(
                             gclm=toyunllm.copy(), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, nthreads=nthreads, epsilon=epsilon, execmode='timing', ptg=None)
+                    print('success')
             elif backend == 'GPU':
                 import cupy as cp
                 kwargs = {
@@ -82,3 +86,4 @@ for epsilon in epsilons:
                 dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) # must always be double precision since nuFFT is always run in double precision
                 # defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
                 defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
+                print('success')

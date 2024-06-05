@@ -133,7 +133,7 @@ class GPU_cufinufft_transformer:
         self.ret = {} # This is for execmode='debug'
         
         # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
-        self.ntheta_CAR = int((ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) + 3) // 4 * 4)
+        self.ntheta_CAR = int((ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 2) +3) // 4 * 4)
         self.nphihalf_CAR = ducc0.fft.good_size(geominfo_deflection[1]['lmax'] + 1)
         self.nphi_CAR = 2 * self.nphihalf_CAR
         self.geominfo_CAR = ('cc',{'lmax': geominfo_deflection[1]['lmax'], 'mmax':geominfo_deflection[1]['lmax'], 'ntheta':self.ntheta_CAR, 'nphi':self.nphi_CAR})
@@ -216,16 +216,15 @@ class GPU_cufinufft_transformer:
     def _assert_precision(self, lenmap, gclm_out):
         assert lenmap.dtype == gclm_out.dtype, "lenmap and gclm_out must have same precision"
         if self.single_prec:
-            assert lenmap.dtype in [cp.float32, cp.complex64], "lenmap must be single precision"
-            assert gclm_out.dtype in [cp.complex64], "gclm_out must be single precision"
+            # assert lenmap.dtype in [cp.float32, cp.complex64], "lenmap must be single precision"
+            # assert gclm_out.dtype in [cp.complex64], "gclm_out must be single precision"
             assert self.epsilon>1e-6, "epsilon must be > 1e-6 for single precision"
 
     # @timing_decorator
     def plan(self, epsilon, nuFFTtype=1):
         "nuFFT dtype real"
 
-        self.FFT_dtype = cp.complex64 if epsilon>1e-6 else cp.complex128
-        # self.FFT_dtype = cp.complex64
+        self.FFT_dtype = cp.complex128 # if epsilon<1e-6 else cp.complex64
         _C = cp.empty(self.nuFFTshape, dtype=self.FFT_dtype)
         _C = cp.ascontiguousarray(_C.T) if self.nuFFTtype == 1 else cp.ascontiguousarray(_C)
         self.FFTplan = get_fft_plan(_C, axes=(0, 1), value_type='C2C')
@@ -464,7 +463,7 @@ class GPU_cufinufft_transformer:
         fc = self._nuFFT2d1(pointmap, nmodes=(self.nphi_dCAR, self.ntheta_dCAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon)
         CARdmap = self._iC2C(cufft.fftshift(fc, axes=(0,1)))
         
-        CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32) if self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.double)
+        CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float64) # if not self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32)
         synthmap = self._adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
         # TODO adjoint_doubling is not theta contiguous, but I don't think that hurts us too much, as adjoint_synth uses 2d-array.
         synthmap = synthmap.reshape(-1,self.nphi_CAR).T

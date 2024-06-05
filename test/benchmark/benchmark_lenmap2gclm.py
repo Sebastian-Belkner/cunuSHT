@@ -11,7 +11,11 @@ from lenspyx.lensing import get_geom as get_lenspyxgeom
 from delensalot.sims.sims_lib import Xunl, Xsky
 
 epsilons = [float(sys.argv[2])]
-lmaxs = [512*int(sys.argv[1])-1]
+# good_numbersp1 = np.array([4, 8, 16, 28, 36, 64, 76, 136, 148, 176, 244, 316, 344, 376, 568, 676, 736, 876, 1216, 1324, 1576, 1716, 1876, 2188, 2836, 3088, 3376, 3676, 4376, 5104])-1
+# 6076, 6616, 7204, 7876])
+# lmaxs = np.array([512*int(sys.argv[1])-1])
+lmaxs = [int(sys.argv[1])]
+
 runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 nthreads = 20
 phi_lmaxs = [lmax for lmax in lmaxs]
@@ -51,6 +55,7 @@ for epsilon in epsilons:
                         _ = Tsky2.copy()
                         defres[backend][solver] = t.lenmap2gclm(
                             np.atleast_2d(_), dlm=toydlm, lmax=lmax, mmax=lmax, spin=0, gclm_out=gclm, nthreads=nthreads, execmode='timing', epsilon=epsilon, ptg=None)
+                        print('success')
                     else:
                         kwargs = {
                             'geominfo_deflection': lenjob_geominfo,
@@ -63,6 +68,7 @@ for epsilon in epsilons:
                         _ = Tsky2.copy()
                         defres[backend][solver] = t.lenmap2gclm(
                                 np.atleast_2d(_), dlm=toydlm, gclm_out=gclm, lmax=lmax, mmax=lmax, spin=0, nthreads=nthreads, epsilon=epsilon, execmode='timing')
+                        print('success')
                 elif backend == 'GPU':
                     kwargs = {
                         'geominfo_deflection': lenjob_geominfo,
@@ -73,10 +79,11 @@ for epsilon in epsilons:
                     t = t(**kwargs)
                     
                     lenmap = np.atleast_2d(Tsky2)
-                    lenmap = cp.array(lenmap, dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(lenmap.astype(np.complex64))
+                    lenmap = cp.array(lenmap, dtype=np.complex128) # if kwargs['epsilon']<=1e-6 else cp.array(lenmap.astype(np.complex64))
                     ll = np.arange(0,lmax+1,1)
                     dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
-                    dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
-                    gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) if kwargs['epsilon']<=1e-6 else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
+                    dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) # if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
+                    gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) # if kwargs['epsilon']<=1e-6 else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
                     # defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
                     defres[backend][solver] = t.lenmap2gclm(lenmap.get(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
+                    print('success')

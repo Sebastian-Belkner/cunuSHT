@@ -721,7 +721,7 @@ class CPU_Lenspyx_transformer:
         
         if ptg is None:
             ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon)
-            ptg = np.array(ptg, dtype=np.float64) if not self.single_prec else np.array(ptg, dtype=np.float32)
+            ptg = np.array(ptg, dtype=np.float64) # if not self.single_prec else np.array(ptg, dtype=np.float32)
         gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.deflectionlib.verbosity)
        
         if self.execmode == 'debug':
