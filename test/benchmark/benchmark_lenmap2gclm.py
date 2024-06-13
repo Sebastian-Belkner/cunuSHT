@@ -15,6 +15,8 @@ epsilons = [float(sys.argv[2])]
 # 6076, 6616, 7204, 7876])
 # lmaxs = np.array([512*int(sys.argv[1])-1])
 lmaxs = [int(sys.argv[1])]
+# nruns = int(sys.argv[4])
+runid = int(sys.argv[4])
 
 runinfos = [("GPU", "cufinufft")] if sys.argv[3] == 'GPU' else [("CPU", "lenspyx")]
 nthreads = 20
@@ -27,7 +29,7 @@ for epsilon in epsilons:
             lldlm = np.arange(0, phi_lmax+1)
             synunl = Xunl(lmax=lmax, geominfo=lenjob_geominfo, phi_lmax=phi_lmax)
             synsky = Xsky(lmax=lmax, unl_lib=synunl, geominfo=lenjob_geominfo, lenjob_geominfo=lenjob_geominfo, epsilon=epsilon)
-            philm = synunl.get_sim_phi(0, space='alm')
+            philm = synunl.get_sim_phi(1, space='alm')
             toydlm = hp.almxfl(philm, np.sqrt(np.arange(phi_lmax + 1, dtype=float) * np.arange(1, phi_lmax + 2)))
             toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
             Tsky2 = synsky.unl2len(toyunllm, philm, spin=0)
@@ -84,6 +86,9 @@ for epsilon in epsilons:
                     dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
                     dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) # if kwargs['epsilon']<=1e-6 else cp.array(np.atleast_2d(dlm_scaled).astype(np.complex64))
                     gclm = cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex128) # if kwargs['epsilon']<=1e-6 else cp.array(np.zeros(shape=(1,t.geom.nalm(lmax, lmax))), dtype=np.complex64)
-                    # defres[backend][solver] = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
-                    defres[backend][solver] = t.lenmap2gclm(lenmap.get(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
-                    print('success')
+                    # for runid in range(1, nruns+1):
+                        # ptg = t.dlm2pointing(dlm_scaled, mmax_dlm=lmax, verbose=0)
+                    defres[backend][solver] = t.lenmap2gclm(lenmap.get(), dlm_scaled=dlm_scaled, ptg=None, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=runid)
+                    print(f"finished run {runid}")
+                    # defres[backend][solver] = t.lenmap2gclm(lenmap.get(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, gclm=gclm, epsilon=epsilon, execmode='timing', runid=int(sys.argv[4]))
+                    

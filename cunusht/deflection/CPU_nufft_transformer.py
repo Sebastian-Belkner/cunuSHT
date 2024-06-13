@@ -586,7 +586,6 @@ class CPU_Lenspyx_transformer:
             verbosity=verbose,
             epsilon=epsilon,
             single_prec=single_prec)
-        
         self.deflectionlib.dlm2pointing = self.dlm2pointing
     
     def _ensure_dtype(self, item):
@@ -656,22 +655,23 @@ class CPU_Lenspyx_transformer:
     @timing_decorator
     # @shape_decorator
     @debug_decorator      
-    def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14):
+    def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14, verbose=0):
         if 'deflectionlib' in self.__dict__:
-            del self.deflectionlib
-        self.setup_lensing(dlm, mmax_dlm, nthreads, 1, epsilon, single_prec)
-        # print("Note: none of the passed arguments are used in this function. All parameters were set upon intialisation of lenspyx")
+            # TODO lenspyx needs dlm for init, but I want to have the option to change it later
+            if not np.all(dlm,self.deflectionlib.dclm) and not mmax_dlm == self.deflectionlib.mmax_dlm and not single_prec == self.deflectionlib.single_prec:
+                self.setup_lensing(dlm, mmax_dlm, nthreads, verbose, epsilon, single_prec)
         return self.deflectionlib._get_ptg()           
     
     @timing_decorator_close
-    def gclm2lenmap(self, gclm:np.ndarray, lmax, mmax:int or None, spin:int, nthreads, dlm=None, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=1, execmode='normal'):
+    def gclm2lenmap(self, gclm:np.ndarray, lmax, mmax:int or None, spin:int, nthreads, dlm=None, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=None, execmode='normal'):
+        if verbose is None:
+            verbose = self.deflectionlib.verbosity
         if epsilon is None:
             epsilon = self.epsilon
             assert epsilon is not None
         self.single_prec = True if epsilon>1e-6 else False
         def setup(self, dlm, nthreads, epsilon, mmax, verbose):
             assert execmode in ['normal','debug', 'timing']
-            print('Running in {} execution mode'.format(execmode))
             self.execmode = execmode
             if 'deflectionlib' not in self.__dict__:
                 self.setup_lensing(dlm, mmax, nthreads, verbose, epsilon, self.single_prec)
@@ -687,7 +687,7 @@ class CPU_Lenspyx_transformer:
         
         
         if ptg is None:
-            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon)
+            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon, verbose)
             ptg = np.array(ptg, dtype=np.float64)# if not self.deflectionlib.single_prec else np.array(ptg, dtype=np.float32)
         lenmap = self.synthesis_general(lmax, mmax, gclm, ptg, spin, self.deflectionlib.epsilon, nthreads, ducc_sht_mode(gclm, spin), self.deflectionlib.verbosity)
         if self.execmode == 'debug':
@@ -696,7 +696,9 @@ class CPU_Lenspyx_transformer:
         return lenmap
 
     @timing_decorator_close
-    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, gclm_out=None, ptg=None, verbose=1, execmode='normal'):
+    def lenmap2gclm(self, lenmap:np.ndarray[complex or float], dlm:np.ndarray, spin:int, lmax:int, mmax:int, nthreads:int, epsilon=None, gclm_out=None, ptg=None, verbose=None, execmode='normal'):
+        if verbose is None:
+            verbose = self.deflectionlib.verbosity
         if epsilon is None:
             epsilon = self.epsilon
             assert epsilon is not None
@@ -705,7 +707,6 @@ class CPU_Lenspyx_transformer:
         self.single_prec = True if epsilon > 1e-6 else False
         def setup(self, nthreads):
             assert execmode in ['normal','debug', 'timing']
-            print('Running in {} execution mode'.format(execmode))
             if 'deflectionlib' not in self.__dict__:
                 self.setup_lensing(dlm, mmax, nthreads, verbose, epsilon, self.single_prec)
             self.execmode = execmode

@@ -1,25 +1,39 @@
 install cunusht on rusty and create a new environment:
 first, set up new environment
 
+
+
 module load python
+module load modules/2.3
+module load cuda/12.3.2
+module load jupyter-kernels
+
+VENVDIR=~/venv
+source $VENVDIR/cunusht_gpu_H100/bin/activate
+
+--------------------------
+
+module load python
+module load modules
 module load cuda/12.1.1
 module load jupyter-kernels
 
 VENVDIR=~/venv
 source $VENVDIR/cunusht_gpu/bin/activate
 
+--------------------------
 python -m venv --system-site-packages $VENVDIR/cunusht_gpu
-
 
 install cunusht on Rusty:
 --------------------------
 make sure to load all modules first before activating the environment.
 never use --user in pip install, as it will install in the wrong place.
 
-pip install logdecorator pybind11 # and others that might be missing
+pip install logdecorator pybind11 line_profiler # and others that might be missing
 plancklens: python setup.py develop # plancklensdev branch, possibly remove all fortran stuff from setup.py beforehand
 lenspyx: python setup.py develop # go to tweak branch before
 shtns from ~/gricad/shtns:
+    export CUDA_PATH=/mnt/sw/nix/store/r3bwp9b2501bv77y6g1nwkb483p0y9z2-cuda-12.3.2
     export CUDA_PATH=/mnt/sw/nix/store/y8bggjg9wx71bpyhldmyq1cwvym9xa97-cuda-12.1.1
     ./configure --enable-openmp --enable-python
     make
@@ -34,7 +48,11 @@ cunusht:
 ducc0:
     pip3 install --no-binary ducc0 ducc0
 
+finufft:
 
+
+
+dependencies = ["cupy-cuda12x"] perhaps for pyproject.toml in cunusht_interface
 Ygdrassil
 ----------
 
@@ -75,7 +93,7 @@ SHTns
 -----------
 
 to install SHTns on the rusty cluster, make sure you the following to variables, otherwise SHTns will 'install' but not have updated GPU routines (not sure why)
-export LD_LIBRARY_PATH=/mnt/sw/nix/store/zi2wc26znf75csf5hhz77p0d2bbz53ih-cuda-11.8.0/lib64;$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/mnt/sw/nix/store/y8bggjg9wx71bpyhldmyq1cwvym9xa97-cuda-12.1.1/lib64;$LD_LIBRARY_PATH
 
 
 other notes:

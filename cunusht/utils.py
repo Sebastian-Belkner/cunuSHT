@@ -6,7 +6,7 @@ import json
 
 from numpy.random import default_rng
 rng = default_rng()
-
+good_lmax_array = np.array([4, 8, 16, 28, 36, 64, 76, 136, 148, 176, 244, 316, 344, 376, 568, 676, 736, 876, 1216, 1324, 1576, 1716, 1876, 2188, 2836, 3088, 3376, 3676, 4376, 5104])-1
 class Alm:
     """alm arrays useful statics. Directly from healpy but excluding keywords
 

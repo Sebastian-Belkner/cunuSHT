@@ -24,6 +24,8 @@ defres = {}
 Tsky = None
 Tsky2 = None
 nthreads = 20
+# nruns = int(sys.argv[4])
+runid = int(sys.argv[4])
 
 for epsilon in epsilons:
     for runinfo in runinfos:
@@ -34,7 +36,7 @@ for epsilon in epsilons:
             if True:
                 from delensalot.sims.sims_lib import Xunl, Xsky
                 synunl = Xunl(lmax=lmax, geominfo=geominfo, phi_lmax=phi_lmax)
-                philm = synunl.get_sim_phi(0, space='alm')
+                philm = synunl.get_sim_phi(1, space='alm')
                 toydlm = hp.almxfl(philm, np.sqrt(lldlm*(lldlm+1)))
                 toyunllm = synunl.get_sim_unl(0, spin=0, space='alm', field='temperature')
             else:
@@ -84,6 +86,9 @@ for epsilon in epsilons:
                 ll = np.arange(0,lmax+1,1)
                 dlm_scaled = hp.almxfl(toydlm, np.nan_to_num(np.sqrt(1/(ll*(ll+1)))))
                 dlm_scaled = cp.array(np.atleast_2d(dlm_scaled), dtype=np.complex128) # must always be double precision since nuFFT is always run in double precision
-                # defres[backend][solver] = t.gclm2lenmap(cp.array(toyunllm.copy()), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
-                defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]))
-                print('success')
+                # for runid in range(1,nruns+1):
+                    # print(dlm_scaled.shape, toyunllm.shape, lenmap.shape, runid)
+                    # ptg = t.dlm2pointing(dlm_scaled, mmax_dlm=lmax, verbose=0)
+                defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=runid, GPUdesc=sys.argv[5])
+                print(f"finished run {runid}")
+                # defres[backend][solver] = t.gclm2lenmap(toyunllm.copy(), dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, lenmap=lenmap, ptg=None, execmode='timing', runid=int(sys.argv[4]), GPUdesc=sys.argv[5])

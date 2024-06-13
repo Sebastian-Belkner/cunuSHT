@@ -17,6 +17,7 @@ def timing_decorator(func):
         cp.cuda.runtime.deviceSynchronize()
         args[0].timer.add(tkey)
         args[0].timer.set(t0, ti)
+        # args[0].timer.close(tkey)
         if args[0].execmode == 'timing' or args[0].execmode == 'debug':
             print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
         return _
@@ -38,11 +39,11 @@ def timing_decorator_close(func):
             print(15*"- "+"Timing {}: {:.3f} seconds".format(tkey, args[0].timer.keys[tkey]) + 15*"- "+"\n")
         args[0].timer.set(t0, ti)
         if args[0].execmode == 'timing':
-            args[0].timer.close(args[0].__class__.__name__)
+            # args[0].timer.close(args[0].__class__.__name__)
             dirname = os.path.dirname(cunusht.__file__)[:-7]+'/test/benchmark/timings/{}/{}/'.format(args[0].__class__.__name__, func.__name__)
             if not os.path.exists(dirname):
                 os.makedirs(dirname)
-            args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}_run{:02d}".format(kwargs['lmax'], args[0].epsilon, args[0].runid))
+            args[0].timer.dumpjson(dirname+"lmax{}_epsilon{}_run{:02d}_{}".format(kwargs['lmax'], args[0].epsilon, args[0].runid, args[0].GPUdesc))
             if args[0].execmode == 'timing' or args[0].execmode == 'debug':
                 print(args[0].timer)
                 print("::timing:: stored new timing data for lmax {}".format(kwargs['lmax']))
