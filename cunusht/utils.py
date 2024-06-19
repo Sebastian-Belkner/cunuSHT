@@ -149,6 +149,55 @@ def synalm(cl:np.ndarray, lmax:int, mmax:int or None, rlm_dtype=np.float64):
     alm[real_idcs] = alm[real_idcs].real * np.sqrt(2.)
     return alm
 
+
+def alm2cl(alm:np.ndarray, blm:np.ndarray or None, lmax:int or None, mmax:int or None, lmaxout:int or None):
+    """Auto- or cross-power spectrum between two alm arrays
+
+    Parameters
+    ----------
+    alm : ndarray
+        First alm harmonic coefficient array
+    blm : ndarray or None
+        Second alm harmonic coefficient array, can set this to same alm object or to None if same as alm
+    lmax : int or None
+        Maximum multipole defining the alm layout
+    mmax: int or None
+        Maximum m defining the alm layout, defaults to lmax if None or < 0
+    lmaxout: the spectrum is calculated down to this multipole (defaults to lmax is None)
+
+    Returns
+    -------
+    cl: ndarray
+        (cross-)power of the input alm and blm arrays
+
+    """
+    if lmax is None: lmax = Alm.getlmax(alm.size, mmax)
+    if lmaxout is None: lmaxout = lmax
+    if mmax is None: mmax = lmax
+    assert lmax == Alm.getlmax(alm.size, mmax), (lmax, Alm.getlmax(alm.size, mmax))
+    lmaxout_ = min(lmaxout, lmax)
+    if blm is not alm: # looks like twice faster than healpy implementation... ?!
+        assert lmax == Alm.getlmax(blm.size, mmax), (lmax, Alm.getlmax(blm.size, mmax))
+        cl = 0.5 * alm[:lmaxout_ + 1].real * blm[:lmaxout_ + 1].real
+        for m in range(1, min(mmax, lmaxout_) + 1):
+            m_idx = Alm.getidx(lmax,  m, m)
+            a = alm[m_idx:m_idx + lmaxout_ - m + 1]
+            b = blm[m_idx:m_idx + lmaxout_ - m + 1]
+            cl[m:] += a.real * b.real + a.imag * b.imag
+    else:
+        a = alm[:lmaxout_ + 1].real
+        cl = 0.5 * a.real * a.real
+        for m in range(1, min(mmax, lmaxout_) + 1):
+            m_idx = Alm.getidx(lmax,  m, m)
+            a = alm[m_idx:m_idx + lmaxout_ - m + 1]
+            cl[m:] += a.real * a.real + a.imag * a.imag
+    cl *= 2. / (2 * np.arange(len(cl)) + 1)
+    if lmaxout > lmaxout_:
+        ret = np.zeros(lmaxout + 1, dtype=float)
+        ret[:lmaxout_ + 1] = cl
+        return ret
+    return cl
+
 class timer:
     def __init__(self, verbose, prefix='', suffix=''):
         self.t0 = time.time()

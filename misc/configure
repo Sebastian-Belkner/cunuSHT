@@ -1,6 +1,8 @@
+# System is V-100 compiled - June 13th 2024, 4 pm
+# System is A-100 compiled - June 14th 2024, 1 pm
+
 install cunusht on rusty and create a new environment:
 first, set up new environment
-
 
 
 module load python
@@ -35,7 +37,7 @@ lenspyx: python setup.py develop # go to tweak branch before
 shtns from ~/gricad/shtns:
     export CUDA_PATH=/mnt/sw/nix/store/r3bwp9b2501bv77y6g1nwkb483p0y9z2-cuda-12.3.2
     export CUDA_PATH=/mnt/sw/nix/store/y8bggjg9wx71bpyhldmyq1cwvym9xa97-cuda-12.1.1
-    ./configure --enable-openmp --enable-python
+    ./configure --enable-openmp --enable-python --enable-cuda
     make
     python3 setup.py install
 
@@ -48,8 +50,13 @@ cunusht:
 ducc0:
     pip3 install --no-binary ducc0 ducc0
 
-finufft:
-
+cufinufft:
+    mkdir build
+    cd build
+    cmake -D FINUFFT_USE_CUDA=ON -D CMAKE_CUDA_ARCHITECTURES=80 ..
+    cmake --build .
+    cd ..
+    pip install python/cufinufft
 
 
 dependencies = ["cupy-cuda12x"] perhaps for pyproject.toml in cunusht_interface

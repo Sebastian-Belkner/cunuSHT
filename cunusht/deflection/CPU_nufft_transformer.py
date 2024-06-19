@@ -626,11 +626,10 @@ class CPU_Lenspyx_transformer:
     @debug_decorator
     @timing_decorator
     # @shape_decorator
-    def synthesis(self, alm, out, lmax, mmax, nthreads):
+    def synthesis(self, alm, spin, out, lmax, mmax, nthreads):
         """ This is outward facing function, and uses the pointing grid, as a user might expect
         """
-        self.deflectionlib.geom.synthesis(alm, out, lmax=lmax, mmax=mmax, nthreads=nthreads)
-        return out
+        return self.deflectionlib.geom.synthesis(alm, spin, map=out, lmax=lmax, mmax=mmax, nthreads=nthreads)
     
     @debug_decorator
     @timing_decorator
@@ -655,12 +654,13 @@ class CPU_Lenspyx_transformer:
     @timing_decorator
     # @shape_decorator
     @debug_decorator      
-    def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14, verbose=0):
-        if 'deflectionlib' in self.__dict__:
+    def dlm2pointing(self, dlm=None, mmax_dlm=None, single_prec=None, nthreads=None, epsilon=1e-14, verbose=1):
+        if 'deflectionlib' in self.__dict__ and self.deflectionlib is not None:
             # TODO lenspyx needs dlm for init, but I want to have the option to change it later
-            if not np.all(dlm,self.deflectionlib.dclm) and not mmax_dlm == self.deflectionlib.mmax_dlm and not single_prec == self.deflectionlib.single_prec:
-                self.setup_lensing(dlm, mmax_dlm, nthreads, verbose, epsilon, single_prec)
-        return self.deflectionlib._get_ptg()           
+            if np.all(dlm, self.deflectionlib.dclm) and mmax_dlm == self.deflectionlib.mmax_dlm and single_prec == self.deflectionlib.single_prec:
+                return self.deflectionlib._get_ptg()
+        self.setup_lensing(dlm, mmax_dlm, nthreads, verbose, epsilon, single_prec)
+        return self.deflectionlib._get_ptg()     
     
     @timing_decorator_close
     def gclm2lenmap(self, gclm:np.ndarray, lmax, mmax:int or None, spin:int, nthreads, dlm=None, epsilon=None, backwards:bool=False, polrot=True, ptg=None, dclm=None, lenmap=None, verbose=None, execmode='normal'):
@@ -721,7 +721,7 @@ class CPU_Lenspyx_transformer:
         setup(self, nthreads)
         
         if ptg is None:
-            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon)
+            ptg = self.dlm2pointing(dlm, mmax, self.single_prec, nthreads, epsilon, verbose)
             ptg = np.array(ptg, dtype=np.float64) # if not self.single_prec else np.array(ptg, dtype=np.float32)
         gclm_out = self.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=lenmap, loc=ptg, mode=ducc_sht_mode(dlm, spin), alm=gclm_out, spin=spin, epsilon=self.epsilon, nthreads=nthreads, verbose=self.deflectionlib.verbosity)
        

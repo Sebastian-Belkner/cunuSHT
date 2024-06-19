@@ -15,7 +15,7 @@ import healpy as hp
 import line_profiler
 from cupyx.scipy.fft import get_fft_plan
 import cupyx
-import cupyx.scipy.fft as cufft
+import cupyx.scipy.fft as cufft #py-vkfft?
 
 from cufinufft import Plan, _compat 
 import ducc0
@@ -130,6 +130,8 @@ class GPU_cufinufft_transformer:
         self.shttransformer_desc = shttransformer_desc
         self.nuFFTtype = nuFFTtype
         self.execmode = "normal"
+        self.dlm_scaled = None
+        self.ptg = None
         self.ret = {} # This is for execmode='debug'
         
         # Take ducc good_size, but adapt for good size needed by GPU SHTns (nlat must be multiple of 4)
@@ -214,8 +216,8 @@ class GPU_cufinufft_transformer:
             else:
                 return item.astype(np.complex128)
   
-    def _assert_precision(self, lenmap, gclm_out):
-        assert lenmap.dtype == gclm_out.dtype, "lenmap and gclm_out must have same precision"
+    def _assert_precision(self, lenmap, gclm):
+        assert lenmap.dtype == gclm.dtype, "lenmap and gclm must have same dtype, but are {} and {}".format(lenmap.dtype, gclm.dtype)
         if self.single_prec:
             # assert lenmap.dtype in [cp.float32, cp.complex64], "lenmap must be single precision"
             # assert gclm_out.dtype in [cp.complex64], "gclm_out must be single precision"
@@ -235,18 +237,19 @@ class GPU_cufinufft_transformer:
         self.FFTplan = get_fft_plan(_C, value_type='C2C') # axes=(0, 1),
         cupyx.scipy.fft.fft2(_C, axes=(0, 1), norm='forward', plan=self.FFTplan)
 
-        # self.nuFFT_dtype = cp.float32 if self.nuFFT_single_prec else cp.float64
         self.nuFFT_dtype = cp.complex64 if self.nuFFT_single_prec else cp.complex128
         isign = -1 if self.nuFFTtype == 1 else 1
-        # print("waiting before nufftplan - check memory now")
-        # time.sleep(5)
         self.nuFFTplan = Plan(
             nuFFTtype,
             tuple(self.nuFFTshape[-2:][::-1]) if self.nuFFTtype == 1 else tuple(self.nuFFTshape[-2:]),
             1, epsilon, isign, self.nuFFT_dtype, gpu_method=2,
-            gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25)#, modeord=1)
-        # print("waiting after nufftplan - check memory now")
-        # time.sleep(5)     
+            gpu_sort=1, gpu_kerevalmeth=0, upsampfac=1.25, modeord=1)
+    
+    
+    def set_pts(self, ptg):
+        self.ptg = ptg
+        self.nuFFTplan.setpts(self.ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), self.ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
+     
     
     @debug_decorator
     @timing_decorator
@@ -290,7 +293,6 @@ class GPU_cufinufft_transformer:
         assert x.dtype == y.dtype
         assert dtype_c2r[fc.dtype] == x.dtype, 'fourier coefficients precision should match pointing precision ({}), but is {}'.format(x.dtype, dtype_c2r[fc.dtype])
         if self.nuFFTtype:
-            # self.nuFFTplan.setpts(x, y, None)
             return self.nuFFTplan.execute(fc) #out=map_out
         else:
             return cufinufft.nufft2d2(data=fc, x=x, y=y, isign=1, eps=epsilon) #out=map_out
@@ -300,12 +302,9 @@ class GPU_cufinufft_transformer:
     # @shape_decorator
     def _nuFFT2d1(self, pointmap, nmodes, x, y, epsilon, fc_out=None):
         assert x.dtype == y.dtype
-        
-        # FIXME why does pointmap have to be complex, when nuFFTplan dtype is set to float?
         assert dtype_c2r[pointmap.dtype] == x.dtype, 'map precision should match pointing precision ({}), but is {}'.format(x.dtype, pointmap.dtype)
         
         if self.nuFFTtype:
-            # self.nuFFTplan.setpts(x, y, None)
             return self.nuFFTplan.execute(pointmap)
         else:  
             return cufinufft.nufft2d1(data=pointmap, x=x, y=y, n_modes=nmodes, isign=-1, eps=epsilon)
@@ -345,7 +344,6 @@ class GPU_cufinufft_transformer:
     def dlm2pointing(self, dlm_scaled, mmax_dlm, verbose, single_prec=False):
         self.timer.reset_ti()
         # NOTE single_prec parameter no needed for CMB lensing applications
-        # NOTE let's keep this double precision for now, and check later
         pointing_theta = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
         pointing_phi = cp.empty((self.deflectionlib.geom.npix()), dtype=cp.double)
         
@@ -385,7 +383,7 @@ class GPU_cufinufft_transformer:
         return self.deflectionlib.adjoint_synthesis_cupy(synthmap, gclm=out, lmax=lmax, mmax=mmax)
 
     @timing_decorator
-    def synthesis_general(self, lmax, mmax, alm, loc, pointmap, epsilon=None, verbose=0):
+    def nusht2d2(self, lmax, mmax, alm, loc, pointmap, epsilon=None, verbose=0):
         """ This is outward facing function, and expects nuFFT type 2
         """
         assert lmax == self.deflectionlib.geominfo[1]['lmax'], "Expected lmax={}. lmax must be same as during init, but is {}".format(lmax, self.deflectionlib.geominfo[1]['lmax'])
@@ -398,6 +396,7 @@ class GPU_cufinufft_transformer:
             pointmap = cp.array(pointmap)
             print("WARNING: synthmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(loc, cp.ndarray):
+            assert loc is not None, "loc must be provided"
             loc = cp.array(loc)
             print("WARNING: loc not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         
@@ -415,9 +414,10 @@ class GPU_cufinufft_transformer:
         # TODO shape checks
 
         pointmap = pointmap #FIXME need dtype checks here - possibly ensures
-        # pointmap = pointmap.astype(cp.float32 if epsilon>1e-6 else cp.float64) 
-        pointing_theta, pointing_phi = loc.T[0], loc.T[1] # transposing so that we follow DUCC convention
-        
+        if not (self.ptg == loc.T).all():
+            # theta, phi = ptg
+            self.nuFFTplan.setpts(loc.T[1].astype(dtype_c2r[self.nuFFT_dtype]), loc.T[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
+            self.ptg = loc.T
         self.CARmap = self._synthesis(alm, self.CARmap, lmax=lmax, mmax=mmax).flatten()
         # del alm
         
@@ -427,17 +427,16 @@ class GPU_cufinufft_transformer:
         _C = self.CARdmap.reshape(self.nphi_dCAR,-1).astype(self.FFTin_dtype)
 
         fc = self._C2C(_C).astype(self.nuFFT_dtype) # sp, dp didn't seem to have impact on acc
-        # del _C
-        pointmap = self._nuFFT2d2(cufft.fftshift(fc, axes=(0,1)), pointing_phi, pointing_theta, epsilon, pointmap)
+        pointmap = self._nuFFT2d2(fc, self.ptg[1], self.ptg[0], epsilon, pointmap)
         # self.nuFFT2d2(fc, pointing_phi, pointing_theta, epsilon, pointmap)
         
-        del fc, _C, pointing_theta, pointing_phi
+        del fc, _C
 
         return pointmap.real
     
     @timing_decorator
     # @debug_decorator
-    def adjoint_synthesis_general(self, lmax, mmax, pointmap, loc, epsilon, alm, verbose):
+    def nusht2d1(self, lmax, mmax, pointmap, loc, epsilon, alm, verbose):
         """ This is outward facing function, and expects nuFFT type 1
 
             Note: pointmap must be theta contiguous, otherwise result may be wrong.
@@ -468,10 +467,14 @@ class GPU_cufinufft_transformer:
         
         # TODO shape checks
 
-        pointing_theta, pointing_phi = loc.T[0], loc.T[1]
+        if not (self.ptg == loc.T).all():
+            # theta, phi = ptg
+            self.nuFFTplan.setpts(loc.T[1].astype(dtype_c2r[self.nuFFT_dtype]), loc.T[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
+            self.ptg = loc.T
         
-        fc = self._nuFFT2d1(pointmap, nmodes=(self.nphi_dCAR, self.ntheta_dCAR), x=pointing_theta, y=pointing_phi, epsilon=epsilon).astype(dtype_r2c[self.adjdtype])
-        CARdmap = self._iC2C(cufft.fftshift(fc, axes=(0,1))).astype(self.adjdtype)
+        fc = self._nuFFT2d1(pointmap, nmodes=(self.nphi_dCAR, self.ntheta_dCAR), x=self.ptg[0], y=self.ptg[1], epsilon=epsilon).astype(dtype_r2c[self.adjdtype])
+        CARdmap = self._iC2C(fc).astype(self.adjdtype)
+        # CARdmap = self._iC2C(cufft.fftshift(fc, axes=(0,1))).astype(self.adjdtype)
         
         CARmap = cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=self.adjdtype) # if not self.single_prec else cp.empty(shape=(self.ntheta_CAR*self.nphi_CAR), dtype=np.float32)
         synthmap = self._adjoint_doubling(CARdmap.real.flatten(), int(self.ntheta_CAR), int(self.nphi_CAR), CARmap)
@@ -484,7 +487,7 @@ class GPU_cufinufft_transformer:
     def gclm2lenmap(self, gclm, lmax, mmax, ptg=None, dlm_scaled=None, epsilon=None, lenmap=None, verbose=1, execmode='normal', runid=None, GPUdesc=""):
         """  This is outward facing function, expects nuFFT type 2
     
-                Note: Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call, in which case this in principle becomes a pure synthesis_general() call
+                Note: Can provide pointing_theta and pointing_phi (ptg) to avoid dlm2pointing() call, in which case this in principle becomes a pure nusht2d2() call
         """
         self.runid = runid
         self.GPUdesc = GPUdesc
@@ -498,16 +501,16 @@ class GPU_cufinufft_transformer:
         cp.cuda.runtime.deviceSynchronize()
         if not isinstance(gclm, cp.ndarray):
             gclm = cp.array(gclm)
-            # print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            print("WARNING: gclm not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(lenmap, cp.ndarray):
             lenmap = cp.array(lenmap)
-            # print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            print("WARNING: lenmap not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(ptg, cp.ndarray) if ptg is not None else False:
             ptg = cp.array(ptg)
-            # print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            print("WARNING: ptg not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         if not isinstance(dlm_scaled, cp.ndarray):
             dlm_scaled = cp.array(dlm_scaled)
-            # print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
+            print("WARNING: dlm_scaled not cupy and has automatically been transferred to device. This may reduce performance. Consider passing a cupy array instead")
         cp.cuda.runtime.deviceSynchronize()
         self.timer.add("Transfer ->")
         self.timer.set(t0, ti)
@@ -538,17 +541,25 @@ class GPU_cufinufft_transformer:
         setup(self)
         
         if ptg is None:
-            assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
-            # note: dlm2pointing wrapper here always returns double precsision
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbose)
-            # del dlm_scaled
+            # NOTE storing dlm_scaled to keep track if it changes
+            if self.dlm_scaled is None:
+                assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
+                self.dlm_scaled = dlm_scaled
+                self.ptg = self.dlm2pointing(self.dlm_scaled, lmax, verbose)
+                self.nuFFTplan.setpts(self.ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), self.ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
+            elif not (self.dlm_scaled == dlm_scaled).all():
+                self.dlm_scaled = dlm_scaled
+                self.ptg = self.dlm2pointing(dlm_scaled, lmax, verbose)
+                self.nuFFTplan.setpts(self.ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), self.ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
         else:
-            pointing_theta, pointing_phi = ptg
-        pointing_theta, pointing_phi = pointing_theta.astype(dtype_c2r[self.nuFFT_dtype]), pointing_phi.astype(dtype_c2r[self.nuFFT_dtype])
-        y, x = cp.array([pointing_theta, pointing_phi])[0], cp.array([pointing_theta, pointing_phi])[1]
-        self.nuFFTplan.setpts(x, y, None)
-        
-        lenmap = self.synthesis_general(lmax, mmax, alm=gclm, loc=cp.array([pointing_theta, pointing_phi]).T, epsilon=self.epsilon, pointmap=lenmap, verbose=verbose)
+            # NOTE storing ptg to keep track if it changed
+            if not (self.ptg == ptg).all():
+                # theta, phi = ptg
+                self.nuFFTplan.setpts(ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), None)
+                self.ptg = ptg
+                # self.pointing_theta, self.pointing_phi = pointing_theta, pointing_phi
+
+        lenmap = self.nusht2d2(lmax, mmax, alm=gclm, loc=self.ptg.T, epsilon=self.epsilon, pointmap=lenmap, verbose=verbose)
         
         if self.execmode == 'timing':
             t0, ti = self.timer.reset()
@@ -562,8 +573,8 @@ class GPU_cufinufft_transformer:
             print("::debug:: Returned component results")
             self.timer.close('gclm2lenmap()')
             return self.ret
-        del pointing_theta, pointing_phi, y, x, gclm
-        # self.timer.delete('gclm2lenmap()')
+        del gclm
+        self.timer.delete('gclm2lenmap()')
         return lenmap
 
     @timing_decorator_close
@@ -626,16 +637,25 @@ class GPU_cufinufft_transformer:
         setup(self)
         
         if ptg is None:
-            assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
-            pointing_theta, pointing_phi = self.dlm2pointing(dlm_scaled, lmax, verbose)
-            del dlm_scaled
+            # NOTE storing dlm_scaled to keep track if it changes
+            if self.dlm_scaled is None:
+                assert dlm_scaled is not None, "Need to provide dlm_scaled if ptg is None"
+                self.dlm_scaled = dlm_scaled
+                self.ptg = self.dlm2pointing(self.dlm_scaled, lmax, verbose)
+                self.nuFFTplan.setpts(self.ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), self.ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), None)
+            elif not (self.dlm_scaled == dlm_scaled).all():
+                self.dlm_scaled = dlm_scaled
+                self.ptg = self.dlm2pointing(dlm_scaled, lmax, verbose)
+                self.nuFFTplan.setpts(self.ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), self.ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), None)
         else:
-            pointing_theta, pointing_phi = ptg.T
-        pointing_theta, pointing_phi = pointing_theta.astype(dtype_c2r[self.nuFFT_dtype]), pointing_phi.astype(dtype_c2r[self.nuFFT_dtype])
-        y, x = cp.array([pointing_theta, pointing_phi])[0], cp.array([pointing_theta, pointing_phi])[1]
-        self.nuFFTplan.setpts(y, x, None)
+            # NOTE storing ptg to keep track if it changed
+            if not (self.ptg == ptg).all():
+                # theta, phi = ptg
+                self.nuFFTplan.setpts(ptg[0].astype(dtype_c2r[self.nuFFT_dtype]), ptg[1].astype(dtype_c2r[self.nuFFT_dtype]), None)
+                self.ptg = ptg
+                # self.pointing_theta, self.pointing_phi = pointing_theta, pointing_phi
         
-        gclm = self.adjoint_synthesis_general(lmax, mmax, lenmap[0], cp.array([pointing_theta, pointing_phi]).T, self.epsilon, gclm, verbose)
+        gclm = self.nusht2d1(lmax, mmax, cp.ascontiguousarray(lenmap[0]), self.ptg.T, self.epsilon, gclm, verbose)
         
         if self.execmode == 'timing':
             t0, ti = self.timer.reset()
@@ -648,8 +668,8 @@ class GPU_cufinufft_transformer:
         if self.execmode == 'debug':
             print("::debug:: Returned component results")
             return self.ret
-        del lenmap, pointing_theta, pointing_phi
-        # self.timer.delete("lenmap2gclm()")
+        del lenmap
+        self.timer.delete("lenmap2gclm()")
         return gclm
 
             

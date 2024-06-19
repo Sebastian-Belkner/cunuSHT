@@ -9,7 +9,14 @@ timings/
 output/*
 output/
 output/movie
+
 test/output
+test/c
+test/benchmark
+test/notebook
+
+misc/configure
+dev/*
 
 outputs/*
 

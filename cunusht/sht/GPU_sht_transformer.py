@@ -14,6 +14,7 @@ class GPU_SHTns_transformer():
 
     def set_geometry(self, geominfo):
         if geominfo[0] == 'cc':
+            # NOTE this is for intermediate grids, so Y operators.
             print('initializing shtns for CC in GPU_SHTns_transformer')
             print("geominfo for CC in GPU_SHTns_transformer: ", geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
@@ -25,6 +26,7 @@ class GPU_SHTns_transformer():
             geominfo[1].pop('mmax')   
             self.geom = geometry.get_geom(geominfo)
         else:
+            # NOTE this is for final grids, so whatever goes in at the lenjob_geominfo.
             self.geom = geometry.get_geom(geominfo)
             self.constructor = shtns.sht(int(geominfo[1]['lmax']), int(geominfo[1]['lmax']))
             # setting nlat and nphi fixes the mismatch between cunusht and SHTns geometry, as SHTns nphi sometimes differs from cunusht which causes memory allocation error in pointing
