@@ -11,9 +11,11 @@ output/
 output/movie
 
 test/output
+test/debug
 test/c
 test/benchmark
 test/notebook
+test/untracked
 
 misc/configure
 dev/*
