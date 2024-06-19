@@ -12,8 +12,8 @@ It can run on both, CPU and GPU, and can do this for (custom) geometries.
 
 Operators:
 
- - `synthesis_general()`: takes SHT coefficients and (possibly non-uniform) grid points at which they are to be evaluated and returns the SHT transformed position space data (a map).
- - `adjoint_synthesis_general()`: this is the adjoint operation, takes a map with (possibly non-uniform grid points) and returns the SHT coefficients for a uniform grid. 
+ - `nusht2d2()`: takes SHT coefficients and (possibly non-uniform) grid points at which they are to be evaluated and returns the SHT transformed position space data (a map).
+ - `nusht2d1()`: this is the adjoint operation, takes a map with (possibly non-uniform grid points) and returns the SHT coefficients for a uniform grid. 
  - `gclm2lenmap()`: similar to synthesis_general, but automatically performs dlm2pointing, iff no pointing is provided
  - `lenmap2gclm()`: similar to adjoint_synthesis_general, but again, perfroms dlm2pointing if needed.
  - `dlm2pointing()`: calculates the non-uniform grid points (pointing) from the coefficients of a deflection field (dlm).
@@ -63,7 +63,7 @@ lmax, mmax = 2047, 2047
 geominfo = ('gl',{'lmax': lmax})
 kwargs = {
     'geominfo_deflection': geominfo,
-    'nuFFTtype': 2, # or 1 if you want to use adjoint_synthesis_general()
+    'nuFFTtype': 2, # or 1 if you want to use nusht2d1()
     'epsilon': 1e-7,
 }
 ```
@@ -78,7 +78,7 @@ t = cunusht.get_transformer(backend='GPU')(**kwargs)
  - loc are the positions (theta, and phi) of the map for which the map should be calculated
  - pointmap is the output array
 ```
-res = t.synthesis_general(lmax=lmax, mmax=mmax, alm=coef, loc=loc, pointmap=pointmap, verbose=True)
+res = t.nusht2d1(lmax=lmax, mmax=mmax, alm=coef, loc=loc, pointmap=pointmap, verbose=True)
 ```
 
 Or, if you want to calculate the adjoint (not how nuFFTtype changes here!)
@@ -88,19 +88,20 @@ lmax, mmax = 2047, 2047
 geominfo = ('gl',{'lmax': lmax})
 kwargs = {
     'geominfo_deflection': geominfo,
-    'nuFFTtype': 1, # or 2 if you want to use synthesis_general()
+    'nuFFTtype': 1, # or 2 if you want to use nusht2d2()
     'epsilon': 1e-7,
 }
 import cunusht
 t = cunusht.get_transformer(backend='GPU')(**kwargs)
 
-res = t.adjoint_synthesis_general(lmax=lmax, mmax=mmax, pointmap=m, loc=loc, alm=alm)
+res = t.nusht2d1(lmax=lmax, mmax=mmax, pointmap=m, loc=loc, alm=alm)
 ```
 
 ## Lensing Convenience Functions
 We provide convenience function for CMB weak lensing purposes.
 
 ### gclm2lenmap()
+This is a wrapper around nusht2d2
 The function depends on,
 - gclm: the SHT coefficients at the uniform grid points
 - ptg: the (non-uniform) grid points (the pointing) for which the pointmap should be evaluated
@@ -115,10 +116,11 @@ res = t.gclm2lenmap(gclm=cp.array(coef), dlm_scaled=cp.zeros(shape=coef.shape), 
 ```
 
 ### lenmap2gclm()
-This is the adjoint (inverse) operation of `gclm2lenmap()`, if lenmap is not quadrature weighted (is multiplied by the maginification matrix, and quadrature weighted).
+This is a wrapper around nusht2d1
+This is the adjoint (inverse) operation of `gclm2lenmap()`, if lenmap is not quadrature weighted (is multiplied by the maginification matrix, quadrature weighted, and deflection is zero).
 
 Similar to above,
 
 ```
-t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, nthreads=10 gclm=gclm)
+res = t.lenmap2gclm(lenmap, dlm_scaled=dlm_scaled, lmax=lmax, mmax=lmax, epsilon=epsilon, gclm=gclm)
 ```
