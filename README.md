@@ -8,7 +8,7 @@ general (adjoint) spin-n SHTs.
 
 cunuSHT provides functions to calculate spherical harmonic transforms for any uniform and non-uniform grid.
 
-It can run on both, CPU and GPU, and can do this for (custom) geometries.
+It can run on both, CPU and GPU, and can do this for (custom) geometries. The code and method are described in: [2406.14542](https://arxiv.org/pdf/2406.14542).
 
 Operators:
 
